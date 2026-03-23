@@ -1,3 +1,17 @@
+// Theme
+const themeToggle = document.getElementById("themeToggle");
+const savedTheme = localStorage.getItem("theme") || "dark";
+document.documentElement.setAttribute("data-theme", savedTheme);
+themeToggle.textContent = savedTheme === "dark" ? "☀️" : "🌙";
+
+themeToggle.addEventListener("click", () => {
+  const current = document.documentElement.getAttribute("data-theme");
+  const next = current === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("theme", next);
+  themeToggle.textContent = next === "dark" ? "☀️" : "🌙";
+});
+
 const socket = io();
 
 // State
@@ -76,7 +90,7 @@ function updateControls() {
   if (!isListening) {
     // Stopped
     toggleBtn.style.display = "";
-    toggleBtn.textContent = "▶ Bắt đầu";
+    toggleBtn.textContent = "▶ Start";
     toggleBtn.className = "btn-start";
     pauseBtn.style.display = "none";
     resumeBtn.style.display = "none";
@@ -84,7 +98,7 @@ function updateControls() {
   } else if (isPaused) {
     // Paused
     toggleBtn.style.display = "";
-    toggleBtn.textContent = "⏹ Dừng";
+    toggleBtn.textContent = "⏹ Stop";
     toggleBtn.className = "btn-stop";
     pauseBtn.style.display = "none";
     resumeBtn.style.display = "";
@@ -92,7 +106,7 @@ function updateControls() {
   } else {
     // Listening
     toggleBtn.style.display = "";
-    toggleBtn.textContent = "⏹ Dừng";
+    toggleBtn.textContent = "⏹ Stop";
     toggleBtn.className = "btn-stop";
     pauseBtn.style.display = "";
     resumeBtn.style.display = "none";
@@ -107,18 +121,18 @@ socket.on("status", (data) => {
 
   if (isListening && !isPaused) {
     currentSessionId = data.sessionId;
-    statusBar.textContent = `Đang nghe (${data.audioSource})`;
+    statusBar.textContent = `Listening (${data.audioSource})`;
     statusBar.className = "status-bar listening";
     if (!document.querySelector(".utterance")) {
       transcript.innerHTML = "";
     }
     partial.textContent = "";
   } else if (isListening && isPaused) {
-    statusBar.textContent = "Tạm dừng";
+    statusBar.textContent = "Paused";
     statusBar.className = "status-bar paused";
     partial.textContent = "";
   } else {
-    statusBar.textContent = "Đã dừng";
+    statusBar.textContent = "Stopped";
     statusBar.className = "status-bar";
     partial.textContent = "";
     currentSessionId = null;
@@ -140,7 +154,7 @@ socket.on("utterance", (data) => {
   const lang = data.originalLanguage
     ? `<span class="lang-badge">${data.originalLanguage}</span>`
     : "";
-  const time = new Date(data.timestamp).toLocaleTimeString("vi-VN");
+  const time = new Date(data.timestamp).toLocaleTimeString("en-US");
 
   el.innerHTML = `
     <div class="utterance-header">
@@ -176,13 +190,13 @@ socket.on("error", (data) => {
 
 socket.on("connect", () => {
   if (!isListening) {
-    statusBar.textContent = "Đã kết nối";
+    statusBar.textContent = "Connected";
     statusBar.className = "status-bar";
   }
 });
 
 socket.on("disconnect", () => {
-  statusBar.textContent = "Mất kết nối";
+  statusBar.textContent = "Disconnected";
   statusBar.className = "status-bar error";
   isListening = false;
   isPaused = false;
@@ -205,7 +219,7 @@ function setSelectMode(on) {
 
 function updateSelectedCount() {
   const checked = document.querySelectorAll(".session-checkbox:checked").length;
-  document.getElementById("selectedCount").textContent = checked > 0 ? `${checked} đã chọn` : "";
+  document.getElementById("selectedCount").textContent = checked > 0 ? `${checked} selected` : "";
   document.getElementById("deleteSelectedBtn").disabled = checked === 0;
 }
 
@@ -221,7 +235,7 @@ async function loadHistory() {
     const sessions = await res.json();
 
     if (sessions.length === 0) {
-      list.innerHTML = '<div class="placeholder">Chưa có lịch sử</div>';
+      list.innerHTML = '<div class="placeholder">No history yet</div>';
       return;
     }
 
@@ -230,7 +244,7 @@ async function loadHistory() {
 
     list.innerHTML = sessions.map((s) => {
       const startDate = new Date(s.started_at + "Z");
-      const date = startDate.toLocaleString("vi-VN");
+      const date = startDate.toLocaleString("en-US");
       const title = s.title || date;
       const source = sourceLabels[s.audio_source] || s.audio_source;
       const lang = langLabels[s.target_language] || s.target_language;
@@ -292,7 +306,7 @@ async function loadHistory() {
       cb.addEventListener("change", updateSelectedCount);
     });
   } catch {
-    list.innerHTML = '<div class="placeholder">Lỗi tải lịch sử</div>';
+    list.innerHTML = '<div class="placeholder">Failed to load history</div>';
   }
 }
 
@@ -310,7 +324,7 @@ document.getElementById("cancelSelectBtn").addEventListener("click", () => {
 document.getElementById("deleteSelectedBtn").addEventListener("click", async () => {
   const ids = [...document.querySelectorAll(".session-checkbox:checked")].map((cb) => cb.dataset.id);
   if (ids.length === 0) return;
-  if (!confirm(`Xóa ${ids.length} cuộc hội thoại?`)) return;
+  if (!confirm(`Delete ${ids.length} session(s)?`)) return;
 
   await Promise.all(ids.map((id) => fetch(`/api/sessions/${id}`, { method: "DELETE" })));
   loadHistory();
@@ -328,16 +342,16 @@ async function loadSessionDetail(id) {
 
     const startDate = new Date(data.started_at + "Z");
     const endDate = data.ended_at ? new Date(data.ended_at + "Z") : null;
-    const title = data.title || startDate.toLocaleString("vi-VN");
+    const title = data.title || startDate.toLocaleString("en-US");
     const utts = data.utterances || [];
 
     // Duration
-    let durationText = "Đang diễn ra";
+    let durationText = "In progress";
     if (endDate) {
       const diffMs = endDate - startDate;
       const mins = Math.floor(diffMs / 60000);
       const secs = Math.floor((diffMs % 60000) / 1000);
-      durationText = mins > 0 ? `${mins} phút ${secs} giây` : `${secs} giây`;
+      durationText = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
     }
 
     // Source label
@@ -359,16 +373,16 @@ async function loadSessionDetail(id) {
         <button class="btn-rename" id="renameBtn" data-id="${id}">🖊️</button>
       </div>
       <div class="session-stats">
-        <div class="stat-item"><span class="stat-label">Thời gian</span><span class="stat-value">${startDate.toLocaleString("vi-VN")}</span></div>
-        <div class="stat-item"><span class="stat-label">Thời lượng</span><span class="stat-value">${durationText}</span></div>
-        <div class="stat-item"><span class="stat-label">Nguồn</span><span class="stat-value">${sourceText}</span></div>
-        <div class="stat-item"><span class="stat-label">Dịch sang</span><span class="stat-value">${langText}</span></div>
-        <div class="stat-item"><span class="stat-label">Số câu</span><span class="stat-value">${utts.length}</span></div>
-        <div class="stat-item"><span class="stat-label">Người nói</span><span class="stat-value">${speakers.length || "—"}</span></div>
+        <div class="stat-item"><span class="stat-label">Started</span><span class="stat-value">${startDate.toLocaleString("en-US")}</span></div>
+        <div class="stat-item"><span class="stat-label">Duration</span><span class="stat-value">${durationText}</span></div>
+        <div class="stat-item"><span class="stat-label">Source</span><span class="stat-value">${sourceText}</span></div>
+        <div class="stat-item"><span class="stat-label">Target</span><span class="stat-value">${langText}</span></div>
+        <div class="stat-item"><span class="stat-label">Utterances</span><span class="stat-value">${utts.length}</span></div>
+        <div class="stat-item"><span class="stat-label">Speakers</span><span class="stat-value">${speakers.length || "—"}</span></div>
       </div>
       ${speakers.length > 0 ? `
         <div class="speaker-list">
-          <div class="speaker-list-title">Người nói</div>
+          <div class="speaker-list-title">Speakers</div>
           ${speakers.map((s) => {
             const idx = getSpeakerIndex(s);
             return `
@@ -384,7 +398,7 @@ async function loadSessionDetail(id) {
     `;
 
     document.getElementById("renameBtn").addEventListener("click", async () => {
-      const newTitle = prompt("Đổi tên cuộc hội thoại:", title);
+      const newTitle = prompt("Rename session:", title);
       if (newTitle != null && newTitle !== title) {
         await fetch(`/api/sessions/${id}`, {
           method: "PATCH",
@@ -399,7 +413,7 @@ async function loadSessionDetail(id) {
       btn.addEventListener("click", async () => {
         const speaker = btn.dataset.speaker;
         const current = aliases[speaker] || `Speaker ${speaker}`;
-        const newName = prompt(`Đổi tên cho ${current}:`, current);
+        const newName = prompt(`Rename ${current}:`, current);
         if (newName && newName !== current) {
           await fetch(`/api/sessions/${id}/speakers/${encodeURIComponent(speaker)}`, {
             method: "PUT",
@@ -412,10 +426,10 @@ async function loadSessionDetail(id) {
     });
 
     document.getElementById("sessionUtterances").innerHTML = utts.length === 0
-      ? '<div class="placeholder">Không có nội dung</div>'
+      ? '<div class="placeholder">No content</div>'
       : utts.map((u) => {
         const idx = getSpeakerIndex(u.speaker);
-        const time = new Date(u.timestamp + "Z").toLocaleTimeString("vi-VN");
+        const time = new Date(u.timestamp + "Z").toLocaleTimeString("en-US");
         const name = u.speaker ? speakerName(u.speaker) : "Speaker";
         return `
           <div class="utterance speaker-${idx}">
@@ -438,7 +452,7 @@ async function loadSessionDetail(id) {
       window.open(`/api/sessions/${id}/export`, "_blank");
     };
   } catch {
-    document.getElementById("sessionInfo").textContent = "Lỗi tải phiên";
+    document.getElementById("sessionInfo").textContent = "Failed to load session";
   }
 }
 
@@ -459,7 +473,7 @@ async function loadSettingsForm() {
 
     // Populate mic device select (input devices)
     const micSel = document.getElementById("settingMicDevice");
-    micSel.innerHTML = '<option value="">-- Không chọn --</option>';
+    micSel.innerHTML = '<option value="">-- None --</option>';
     for (const d of devices.input) {
       const opt = document.createElement("option");
       opt.value = d.index;
@@ -492,10 +506,10 @@ document.getElementById("saveSettingsBtn").addEventListener("click", async () =>
     });
 
     const status = document.getElementById("saveStatus");
-    status.textContent = "Đã lưu!";
+    status.textContent = "Saved!";
     setTimeout(() => (status.textContent = ""), 2000);
   } catch {
-    document.getElementById("saveStatus").textContent = "Lỗi lưu cài đặt";
+    document.getElementById("saveStatus").textContent = "Failed to save settings";
   }
 });
 
@@ -518,5 +532,5 @@ function escapeHtml(text) {
 
 // Init
 (async () => {
-  statusBar.textContent = "Đang kết nối...";
+  statusBar.textContent = "Connecting...";
 })();
