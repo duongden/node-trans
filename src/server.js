@@ -1,0 +1,195 @@
+import "dotenv/config";
+import express from "express";
+import { createServer } from "http";
+import { Server } from "socket.io";
+import { fileURLToPath } from "url";
+import path from "path";
+
+import apiRoutes from "./routes/api.js";
+import { loadSettings } from "./storage/settings.js";
+import { createSession as createSonioxSession } from "./soniox/session.js";
+import { startCapture } from "./audio/capture.js";
+import { listInputDevices } from "./audio/devices.js";
+import * as history from "./storage/history.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const app = express();
+const server = createServer(app);
+const io = new Server(server);
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "../public")));
+app.use("/api", apiRoutes);
+
+// Active sessions per socket
+const activeSessions = new Map();
+
+io.on("connection", (socket) => {
+  console.log("Client connected:", socket.id);
+
+  socket.on("start-listening", async () => {
+    // Clean up any existing session
+    await stopSession(socket.id);
+
+    try {
+      const settings = loadSettings();
+      const audioSource = settings.audioSource;
+      const targetLanguage = settings.targetLanguage;
+      const languageHints = settings.languageHints || ["en"];
+
+      // Resolve device indices
+      const devices = await listInputDevices();
+      const micIndex = settings.micDeviceIndex ?? 0;
+
+      // System device: auto-detect BlackHole loopback input device
+      let systemIndex = null;
+      if (audioSource === "system" || audioSource === "both") {
+        const loopback = devices.find((d) => /blackhole/i.test(d.name));
+        if (loopback) {
+          systemIndex = loopback.index;
+        } else {
+          socket.emit("error", { message: "BlackHole chưa được cài đặt. Cần BlackHole để capture system audio." });
+        }
+      }
+
+      const deviceName = devices.find((d) => d.index === micIndex)?.name || `Device ${micIndex}`;
+
+      // Create history session
+      const dbSessionId = history.createSession(audioSource, targetLanguage, deviceName);
+
+      const state = {
+        dbSessionId,
+        audioSource,
+        paused: false,
+        captures: [],
+        sonioxSessions: [],
+      };
+
+      const sources = audioSource === "both"
+        ? ["mic", "system"]
+        : [audioSource];
+
+      for (const source of sources) {
+        const deviceIdx = source === "mic" ? micIndex : systemIndex;
+        if (deviceIdx == null) {
+          socket.emit("error", { message: `No device configured for ${source}` });
+          continue;
+        }
+
+        // Start audio capture
+        const capture = startCapture(deviceIdx);
+        capture.onError((err) => {
+          socket.emit("error", { message: `Audio capture error (${source}): ${err.message}` });
+        });
+
+        // Start Soniox session
+        const soniox = createSonioxSession({ targetLanguage, languageHints });
+
+        soniox.onPartial((partial) => {
+          socket.emit("partial-result", { source, ...partial });
+        });
+
+        soniox.onUtterance((utterance, isFinished) => {
+          socket.emit("utterance", { source, ...utterance });
+
+          // Save to DB
+          if (utterance.originalText) {
+            history.addUtterance(dbSessionId, {
+              ...utterance,
+              source,
+            });
+          }
+        });
+
+        soniox.onError((err) => {
+          socket.emit("error", { message: `Soniox error: ${err.message}` });
+        });
+
+        await soniox.connect();
+        await soniox.startStreaming();
+
+        // Pipe audio chunks to Soniox
+        capture.stream.on("data", (chunk) => {
+          soniox.sendAudio(chunk);
+        });
+
+        capture.stream.on("end", () => {
+          soniox.stop().catch(() => {});
+        });
+
+        state.captures.push(capture);
+        state.sonioxSessions.push(soniox);
+      }
+
+      activeSessions.set(socket.id, state);
+      socket.emit("status", { listening: true, sessionId: dbSessionId, audioSource });
+      console.log(`Started listening: socket=${socket.id}, session=${dbSessionId}, source=${audioSource}`);
+    } catch (err) {
+      socket.emit("error", { message: `Failed to start: ${err.message}` });
+      console.error("Start error:", err);
+    }
+  });
+
+  socket.on("pause-listening", () => {
+    const state = activeSessions.get(socket.id);
+    if (!state || state.paused) return;
+
+    for (const capture of state.captures) {
+      capture.pause();
+    }
+    state.paused = true;
+    socket.emit("status", { listening: true, paused: true, sessionId: state.dbSessionId, audioSource: state.audioSource });
+    console.log(`Paused: socket=${socket.id}`);
+  });
+
+  socket.on("resume-listening", () => {
+    const state = activeSessions.get(socket.id);
+    if (!state || !state.paused) return;
+
+    for (const capture of state.captures) {
+      capture.resume();
+    }
+    state.paused = false;
+    socket.emit("status", { listening: true, paused: false, sessionId: state.dbSessionId, audioSource: state.audioSource });
+    console.log(`Resumed: socket=${socket.id}`);
+  });
+
+  socket.on("stop-listening", async () => {
+    await stopSession(socket.id);
+    socket.emit("status", { listening: false });
+  });
+
+  socket.on("disconnect", async () => {
+    await stopSession(socket.id);
+    console.log("Client disconnected:", socket.id);
+  });
+});
+
+async function stopSession(socketId) {
+  const state = activeSessions.get(socketId);
+  if (!state) return;
+
+  for (const capture of state.captures) {
+    capture.stop();
+  }
+
+  for (const soniox of state.sonioxSessions) {
+    try {
+      await soniox.stop();
+    } catch {
+      // Ignore stop errors
+    }
+  }
+
+  history.endSession(state.dbSessionId);
+  activeSessions.delete(socketId);
+}
+
+// Start server
+const settings = loadSettings();
+const PORT = process.env.PORT || settings.port || 3000;
+
+server.listen(PORT, () => {
+  console.log(`Server running at http://localhost:${PORT}`);
+});

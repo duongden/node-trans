@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Node Trans - Dịch âm thanh thời gian thực</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>🎙️ Node Trans</h1>
+        <div class="status-bar" id="statusBar">Chưa kết nối</div>
+      </header>
+
+      <nav class="tabs">
+        <button class="tab active" data-tab="live">Dịch trực tiếp</button>
+        <button class="tab" data-tab="history">Lịch sử</button>
+        <button class="tab" data-tab="settings">Cài đặt</button>
+      </nav>
+
+      <!-- Live Tab -->
+      <section class="tab-content active" id="tab-live">
+        <div class="controls">
+          <button id="toggleBtn" class="btn-start">▶ Bắt đầu</button>
+          <button id="pauseBtn" class="btn-pause" style="display:none">⏸ Tạm dừng</button>
+          <button id="resumeBtn" class="btn-resume" style="display:none">▶ Tiếp tục</button>
+          <button id="newSessionBtn" class="btn-new" style="display:none">⊕ Cuộc họp mới</button>
+        </div>
+
+        <div class="transcript" id="transcript">
+          <div class="placeholder">Nhấn "Bắt đầu" để nghe và dịch âm thanh</div>
+        </div>
+
+        <div class="partial" id="partial"></div>
+      </section>
+
+      <!-- History Tab -->
+      <section class="tab-content" id="tab-history">
+        <div class="history-toolbar" id="historyToolbar" style="display: none">
+          <label class="select-all-label">
+            <input type="checkbox" id="selectAll" /> Chọn tất cả
+          </label>
+          <span id="selectedCount"></span>
+          <button class="btn-delete" id="deleteSelectedBtn">🗑 Xóa</button>
+          <button class="btn-cancel-select" id="cancelSelectBtn">Hủy</button>
+        </div>
+        <div class="history-list" id="historyList">
+          <div class="placeholder">Đang tải lịch sử...</div>
+        </div>
+
+        <div class="session-detail" id="sessionDetail" style="display: none">
+          <div class="detail-toolbar">
+            <button class="btn-back" id="backBtn">← Quay lại</button>
+            <button class="btn-export" id="exportBtn">📥 Xuất Markdown</button>
+          </div>
+          <div id="sessionInfo"></div>
+          <div id="sessionUtterances"></div>
+        </div>
+      </section>
+
+      <!-- Settings Tab -->
+      <section class="tab-content" id="tab-settings">
+        <div class="settings-form">
+          <div class="setting-group">
+            <label>Nguồn âm thanh mặc định:</label>
+            <select id="settingAudioSource">
+              <option value="mic">Microphone</option>
+              <option value="system">System Audio</option>
+              <option value="both">Cả hai (Microphone & System Audio)</option>
+            </select>
+          </div>
+
+          <div class="setting-group">
+            <label>Thiết bị mic mặc định:</label>
+            <select id="settingMicDevice"></select>
+          </div>
+
+          <div class="setting-group">
+            <label>Ngôn ngữ đích mặc định:</label>
+            <select id="settingTargetLanguage">
+              <option value="vi">Tiếng Việt</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+              <option value="zh">中文</option>
+              <option value="fr">Français</option>
+              <option value="es">Español</option>
+              <option value="de">Deutsch</option>
+            </select>
+          </div>
+
+          <button class="btn-save" id="saveSettingsBtn">💾 Lưu cài đặt</button>
+          <div class="save-status" id="saveStatus"></div>
+        </div>
+      </section>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
