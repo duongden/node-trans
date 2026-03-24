@@ -19,7 +19,7 @@ const server = createServer(app);
 const io = new Server(server);
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "../public")));
+app.use(express.static(path.join(__dirname, "../dist")));
 app.use("/api", apiRoutes);
 
 // Active sessions per socket

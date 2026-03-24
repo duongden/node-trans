@@ -279,8 +279,11 @@ async function loadHistory() {
     // Click → view detail; long press → select mode
     list.querySelectorAll(".session-item").forEach((item) => {
       let timer;
+      let longPressed = false;
       item.addEventListener("mousedown", () => {
+        longPressed = false;
         timer = setTimeout(() => {
+          longPressed = true;
           setSelectMode(true);
           const cb = item.querySelector(".session-checkbox");
           cb.checked = true;
@@ -292,6 +295,10 @@ async function loadHistory() {
 
       item.addEventListener("click", (e) => {
         if (e.target.classList.contains("session-checkbox")) return;
+        if (longPressed) {
+          longPressed = false;
+          return;
+        }
         if (selectMode) {
           const cb = item.querySelector(".session-checkbox");
           cb.checked = !cb.checked;

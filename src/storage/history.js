@@ -131,6 +131,7 @@ export function renameSession(sessionId, title) {
 
 export function deleteSession(sessionId) {
   const db = getDb();
+  db.prepare("DELETE FROM speaker_aliases WHERE session_id = ?").run(sessionId);
   db.prepare("DELETE FROM utterances WHERE session_id = ?").run(sessionId);
   db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
 }

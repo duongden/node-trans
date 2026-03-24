@@ -1,0 +1,84 @@
+import { useState, useEffect } from "react";
+import { fetchSettings, fetchDevices, saveSettings } from "../../utils/api";
+import { LANGUAGE_OPTIONS, AUDIO_SOURCE_OPTIONS } from "../../utils/constants";
+
+const selectCls = "bg-white/80 dark:bg-white/5 text-gray-700 dark:text-gray-300 border border-gray-200/50 dark:border-indigo-500/10 px-3 py-2 rounded-xl w-full max-w-xs text-sm outline-none transition-all duration-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 hover:border-gray-300 dark:hover:border-indigo-500/20";
+
+export default function SettingsTab({ active }) {
+  const [audioSource, setAudioSource] = useState("mic");
+  const [targetLanguage, setTargetLanguage] = useState("vi");
+  const [micDeviceIndex, setMicDeviceIndex] = useState("");
+  const [devices, setDevices] = useState([]);
+  const [saveStatus, setSaveStatus] = useState("");
+
+  useEffect(() => {
+    if (!active) return;
+
+    Promise.all([fetchSettings(), fetchDevices()]).then(([settings, devData]) => {
+      setDevices(devData.input || []);
+      setAudioSource(settings.audioSource || "mic");
+      setTargetLanguage(settings.targetLanguage || "vi");
+      setMicDeviceIndex(settings.micDeviceIndex != null ? String(settings.micDeviceIndex) : "");
+    }).catch(() => {});
+  }, [active]);
+
+  const handleSave = async () => {
+    try {
+      await saveSettings({
+        audioSource,
+        targetLanguage,
+        micDeviceIndex: micDeviceIndex ? parseInt(micDeviceIndex) : null,
+      });
+      setSaveStatus("Saved!");
+      setTimeout(() => setSaveStatus(""), 2000);
+    } catch {
+      setSaveStatus("Failed to save settings");
+    }
+  };
+
+  return (
+    <div className="py-2 space-y-5">
+      <div>
+        <label className="block text-xs text-gray-400 dark:text-gray-600 mb-1.5 font-medium uppercase tracking-wider">
+          Audio Source:
+        </label>
+        <select className={selectCls} value={audioSource} onChange={(e) => setAudioSource(e.target.value)}>
+          {AUDIO_SOURCE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-xs text-gray-400 dark:text-gray-600 mb-1.5 font-medium uppercase tracking-wider">
+          Microphone Device:
+        </label>
+        <select className={selectCls} value={micDeviceIndex} onChange={(e) => setMicDeviceIndex(e.target.value)}>
+          <option value="">-- None --</option>
+          {devices.map((d) => (
+            <option key={d.index} value={String(d.index)}>[{d.index}] {d.name}</option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-xs text-gray-400 dark:text-gray-600 mb-1.5 font-medium uppercase tracking-wider">
+          Target Language:
+        </label>
+        <select className={selectCls} value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)}>
+          {LANGUAGE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <button
+        className="bg-linear-to-r from-indigo-600 to-cyan-500 text-white border-none px-6 py-2.5 rounded-xl cursor-pointer text-sm font-semibold transition-all duration-200 shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 active:scale-95"
+        onClick={handleSave}
+      >
+        💾 Save Settings
+      </button>
+      {saveStatus && <div className="mt-2 text-sm text-cyan-400">{saveStatus}</div>}
+    </div>
+  );
+}
