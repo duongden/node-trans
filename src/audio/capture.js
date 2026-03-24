@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import { Transform } from "stream";
 
 const CHUNK_SIZE = 3840; // 120ms at 16kHz mono 16-bit
+const IS_WIN = process.platform === "win32";
 
 class ChunkTransform extends Transform {
   constructor() {
@@ -26,16 +27,23 @@ class ChunkTransform extends Transform {
   }
 }
 
-export function startCapture(deviceIndex) {
-  const ffmpeg = spawn("ffmpeg", [
-    "-f", "avfoundation",
-    "-i", `:${deviceIndex}`,
+/**
+ * @param {number|string} device - Device index (macOS) or device name (Windows)
+ */
+export function startCapture(device) {
+  const args = IS_WIN
+    ? ["-f", "dshow", "-i", `audio=${device}`]
+    : ["-f", "avfoundation", "-i", `:${device}`];
+
+  args.push(
     "-acodec", "pcm_s16le",
     "-ar", "16000",
     "-ac", "1",
     "-f", "s16le",
     "pipe:1",
-  ], {
+  );
+
+  const ffmpeg = spawn("ffmpeg", args, {
     stdio: ["pipe", "pipe", "pipe"],
   });
 
@@ -68,7 +76,17 @@ export function startCapture(deviceIndex) {
     },
 
     stop() {
-      ffmpeg.kill("SIGTERM");
+      if (IS_WIN) {
+        // On Windows, write 'q' to stdin for graceful exit, then force kill as fallback
+        try {
+          ffmpeg.stdin.write("q");
+        } catch {}
+        setTimeout(() => {
+          try { ffmpeg.kill(); } catch {}
+        }, 500);
+      } else {
+        ffmpeg.kill("SIGTERM");
+      }
     },
 
     onError(callback) {

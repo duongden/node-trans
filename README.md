@@ -4,12 +4,20 @@
 
 Ứng dụng dịch âm thanh thời gian thực sử dụng [Soniox API](https://soniox.com/docs/stt/rt/real-time-translation). Hỗ trợ nghe từ microphone, system audio hoặc cả hai, dịch sang ngôn ngữ đích và lưu lịch sử hội thoại.
 
+Hỗ trợ **macOS** và **Windows**.
+
 ## Yêu cầu
 
 - **Node.js** >= 18
-- **ffmpeg** (cài qua `brew install ffmpeg`)
+- **ffmpeg**
 - **Soniox API Key** (đăng ký tại [soniox.com](https://soniox.com))
-- **BlackHole 2ch** (chỉ cần nếu muốn capture system audio)
+
+### Cài ffmpeg
+
+| Hệ điều hành | Cách cài |
+|---------------|----------|
+| macOS | `brew install ffmpeg` |
+| Windows | `winget install ffmpeg` hoặc tải từ [ffmpeg.org](https://ffmpeg.org/download.html), thêm vào PATH |
 
 ## Cài đặt
 
@@ -17,11 +25,32 @@
 # Clone và cài dependencies
 npm install
 
+# Build frontend
+npm run build
+
 # Tạo file .env
 echo "SONIOX_API_KEY=your_api_key_here" > .env
 ```
 
-### Cài BlackHole (cho System Audio)
+## Chạy
+
+```bash
+# Production
+npm start
+
+# Development (chạy server + client riêng)
+npm run dev:server   # Terminal 1
+npm run dev:client   # Terminal 2
+```
+
+- Production: mở `http://localhost:3000`
+- Development: mở `http://localhost:5173` (Vite dev server, tự proxy API)
+
+## Capture System Audio
+
+Nếu muốn capture âm thanh hệ thống (ví dụ: nghe cuộc họp trên Google Meet, Zoom...), cần cài thêm virtual audio driver.
+
+### macOS — BlackHole
 
 ```bash
 brew install blackhole-2ch
@@ -35,33 +64,31 @@ Sau khi cài BlackHole, tạo **Aggregate Device** trong Audio MIDI Setup:
 3. Tick **BlackHole 2ch** + **loa đang dùng** (ví dụ MacBook Pro Speakers)
 4. Vào **System Settings → Sound → Output** → chọn Aggregate Device vừa tạo
 
-Âm thanh hệ thống sẽ được route qua cả loa và BlackHole, app tự detect BlackHole để capture.
+App tự detect BlackHole để capture.
 
-## Chạy
+### Windows — VB-CABLE
 
-```bash
-# Production
-npm start
+1. Tải **VB-CABLE** (free) từ [vb-audio.com/Cable](https://vb-audio.com/Cable/)
+2. Cài đặt và restart máy
+3. Vào **Sound Settings → Output** → chọn **CABLE Input** làm output
+4. App tự detect "CABLE Output" trong danh sách input devices
 
-# Development (auto-reload)
-npm run dev
-```
-
-Mở trình duyệt tại `http://localhost:3000`
+Hoặc enable **Stereo Mix** trong Sound Settings (nếu sound card hỗ trợ):
+- Vào **Sound Settings → Recording** → chuột phải → **Show Disabled Devices** → enable **Stereo Mix**
 
 ## Sử dụng
 
 ### Tab Dịch trực tiếp
 
-- Nhấn **▶ Bắt đầu** để bắt đầu nghe và dịch
-- **⏸ Tạm dừng** — tạm dừng capture, giữ nguyên session
-- **▶ Tiếp tục** — tiếp tục capture trong cùng session
-- **⊕ Cuộc họp mới** — kết thúc session hiện tại, bắt đầu session mới
-- **⏹ Dừng** — kết thúc session
+- Nhấn **▶ Start** để bắt đầu nghe và dịch
+- **⏸ Pause** — tạm dừng capture, giữ nguyên session
+- **▶ Resume** — tiếp tục capture trong cùng session
+- **⊕ New Meeting** — kết thúc session hiện tại, bắt đầu session mới
+- **⏹ Stop** — kết thúc session
 
 Mỗi speaker được phân biệt bằng màu sắc riêng. Nội dung gốc và bản dịch hiển thị realtime.
 
-### Tab Lịch sử
+### Tab History
 
 - Danh sách các session đã lưu, hiển thị thời gian, thời lượng, nguồn, số câu, số người nói
 - **Click** vào session để xem chi tiết
@@ -69,40 +96,59 @@ Mỗi speaker được phân biệt bằng màu sắc riêng. Nội dung gốc v
 - Trong chi tiết session:
   - **Đổi tên session** bằng nút 🖊️ cạnh title
   - **Đổi tên speaker** (ví dụ "Speaker 1" → "Anh Nam") bằng nút 🖊️ trong danh sách người nói
-  - **Xuất Markdown** để lưu nội dung ra file `.md`
+  - **Export Markdown** để lưu nội dung ra file `.md`
 
-### Tab Cài đặt
+### Tab Settings
 
 | Cài đặt | Mô tả |
 |---------|-------|
-| Nguồn âm thanh | Microphone / System Audio / Cả hai |
-| Thiết bị mic | Chọn microphone (từ danh sách input devices) |
-| Ngôn ngữ đích | Ngôn ngữ dịch (mặc định: Tiếng Việt) |
+| Audio Source | Microphone / System Audio / Both |
+| Microphone Device | Chọn microphone (từ danh sách input devices) |
+| Target Language | Ngôn ngữ dịch (mặc định: Tiếng Việt) |
 
-System audio tự động detect BlackHole, không cần cấu hình thêm.
+## Tech Stack
+
+| Layer | Công nghệ |
+|-------|-----------|
+| Frontend | React 19, Vite, Tailwind CSS v4, Socket.IO Client |
+| Backend | Node.js, Express 5, Socket.IO |
+| Audio | ffmpeg (avfoundation trên macOS, dshow trên Windows) |
+| Speech-to-Text | Soniox API (realtime translation) |
+| Database | SQLite (better-sqlite3) |
 
 ## Cấu trúc project
 
 ```
 node-trans/
-├── public/            # Frontend (vanilla HTML/CSS/JS)
+├── client/              # React frontend (Vite + Tailwind CSS)
 │   ├── index.html
-│   ├── app.js
-│   └── style.css
+│   ├── vite.config.js
+│   └── src/
+│       ├── main.jsx
+│       ├── App.jsx
+│       ├── style.css
+│       ├── hooks/       # useTheme
+│       ├── context/     # SocketContext (useReducer)
+│       ├── components/  # Header, TabNav, StatusBar, Modal
+│       │   ├── live/    # Controls, Transcript, Utterance, PartialResult
+│       │   ├── history/ # SessionList, SessionItem, SessionDetail, SpeakerList
+│       │   └── settings/# SettingsTab
+│       └── utils/       # api.js, constants.js, speakerColors.js
 ├── src/
-│   ├── server.js      # Express + Socket.IO server
+│   ├── server.js        # Express + Socket.IO server
 │   ├── audio/
-│   │   ├── capture.js # ffmpeg audio capture (pause/resume)
-│   │   └── devices.js # Liệt kê input/output devices
+│   │   ├── capture.js   # ffmpeg audio capture (macOS + Windows)
+│   │   └── devices.js   # Liệt kê input/output devices (macOS + Windows)
 │   ├── soniox/
-│   │   └── session.js # Soniox realtime translation session
+│   │   └── session.js   # Soniox realtime translation session
 │   ├── storage/
-│   │   ├── history.js # SQLite DB (sessions, utterances, speaker aliases)
-│   │   ├── settings.js# Lưu settings (~/.node-trans/settings.json)
-│   │   └── export.js  # Xuất session ra Markdown
+│   │   ├── history.js   # SQLite DB (sessions, utterances, speaker aliases)
+│   │   ├── settings.js  # Settings (~/.node-trans/settings.json)
+│   │   └── export.js    # Xuất session ra Markdown
 │   └── routes/
-│       └── api.js     # REST API endpoints
-├── .env               # SONIOX_API_KEY
+│       └── api.js       # REST API endpoints
+├── dist/                # Build output (generated by `npm run build`)
+├── .env                 # SONIOX_API_KEY
 └── package.json
 ```
 

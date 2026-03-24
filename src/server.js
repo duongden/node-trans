@@ -38,22 +38,34 @@ io.on("connection", (socket) => {
       const targetLanguage = settings.targetLanguage;
       const languageHints = settings.languageHints || ["en"];
 
-      // Resolve device indices
+      // Resolve devices
       const devices = await listInputDevices();
+      const isWin = process.platform === "win32";
       const micIndex = settings.micDeviceIndex ?? 0;
+      const micDevice = devices.find((d) => d.index === micIndex);
 
-      // System device: auto-detect BlackHole loopback input device
-      let systemIndex = null;
+      // On Windows, dshow needs device name; on macOS, avfoundation uses index
+      const micCaptureDev = isWin ? micDevice?.name : micIndex;
+
+      // System device: auto-detect virtual loopback input device
+      let systemCaptureDev = null;
       if (audioSource === "system" || audioSource === "both") {
-        const loopback = devices.find((d) => /blackhole/i.test(d.name));
+        // macOS: BlackHole, Windows: VB-CABLE / Stereo Mix / CABLE Output
+        const loopbackPattern = isWin
+          ? /cable|stereo mix|virtual|vb-audio/i
+          : /blackhole/i;
+        const loopback = devices.find((d) => loopbackPattern.test(d.name));
         if (loopback) {
-          systemIndex = loopback.index;
+          systemCaptureDev = isWin ? loopback.name : loopback.index;
         } else {
-          socket.emit("error", { message: "BlackHole chưa được cài đặt. Cần BlackHole để capture system audio." });
+          const hint = isWin
+            ? "Virtual Audio Cable (VB-CABLE) is not installed. Install VB-CABLE to capture system audio."
+            : "BlackHole chưa được cài đặt. Cần BlackHole để capture system audio.";
+          socket.emit("error", { message: hint });
         }
       }
 
-      const deviceName = devices.find((d) => d.index === micIndex)?.name || `Device ${micIndex}`;
+      const deviceName = micDevice?.name || `Device ${micIndex}`;
 
       // Create history session
       const dbSessionId = history.createSession(audioSource, targetLanguage, deviceName);
@@ -71,14 +83,14 @@ io.on("connection", (socket) => {
         : [audioSource];
 
       for (const source of sources) {
-        const deviceIdx = source === "mic" ? micIndex : systemIndex;
-        if (deviceIdx == null) {
+        const captureDev = source === "mic" ? micCaptureDev : systemCaptureDev;
+        if (captureDev == null) {
           socket.emit("error", { message: `No device configured for ${source}` });
           continue;
         }
 
         // Start audio capture
-        const capture = startCapture(deviceIdx);
+        const capture = startCapture(captureDev);
         capture.onError((err) => {
           socket.emit("error", { message: `Audio capture error (${source}): ${err.message}` });
         });

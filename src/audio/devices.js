@@ -1,7 +1,26 @@
 import { spawn, execFile } from "child_process";
 
-// Input devices (for ffmpeg avfoundation capture) — used for mic & system audio capture
+const IS_WIN = process.platform === "win32";
+
+// Input devices — used for mic & system audio capture
 export async function listInputDevices() {
+  return IS_WIN ? listInputDevicesWindows() : listInputDevicesMac();
+}
+
+// Output devices — for system audio setting display
+export async function listOutputDevices() {
+  return IS_WIN ? listOutputDevicesWindows() : listOutputDevicesMac();
+}
+
+// Combined: returns { input: [...], output: [...] }
+export async function listAllDevices() {
+  const [input, output] = await Promise.all([listInputDevices(), listOutputDevices()]);
+  return { input, output };
+}
+
+// ─── macOS ───────────────────────────────────────────────
+
+function listInputDevicesMac() {
   return new Promise((resolve) => {
     const ffmpeg = spawn("ffmpeg", [
       "-f", "avfoundation",
@@ -29,9 +48,8 @@ const TRANSPORT_LABELS = {
   coreaudio_device_type_unknown: "Aggregate",
 };
 
-// Output devices (speakers, headphones, virtual outputs) — for system audio setting display
-export async function listOutputDevices() {
-  return new Promise((resolve, reject) => {
+function listOutputDevicesMac() {
+  return new Promise((resolve) => {
     execFile("system_profiler", ["SPAudioDataType", "-json"], (err, stdout) => {
       if (err) return resolve([]);
       try {
@@ -50,12 +68,6 @@ export async function listOutputDevices() {
       }
     });
   });
-}
-
-// Combined: returns { input: [...], output: [...] }
-export async function listAllDevices() {
-  const [input, output] = await Promise.all([listInputDevices(), listOutputDevices()]);
-  return { input, output };
 }
 
 function parseAvfoundation(stderr) {
@@ -78,6 +90,82 @@ function parseAvfoundation(stderr) {
           index: parseInt(match[1]),
           name: match[2].trim(),
         });
+      }
+    }
+  }
+
+  return devices;
+}
+
+// ─── Windows ─────────────────────────────────────────────
+
+function listInputDevicesWindows() {
+  return new Promise((resolve) => {
+    const ffmpeg = spawn("ffmpeg", [
+      "-f", "dshow",
+      "-list_devices", "true",
+      "-i", "dummy",
+    ]);
+
+    let stderr = "";
+    ffmpeg.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    ffmpeg.on("close", () => {
+      resolve(parseDshow(stderr));
+    });
+  });
+}
+
+function listOutputDevicesWindows() {
+  return new Promise((resolve) => {
+    // Use PowerShell to list audio output devices
+    execFile("powershell", [
+      "-NoProfile", "-Command",
+      "Get-CimInstance Win32_SoundDevice | Select-Object Name, Status | ConvertTo-Json -Compress",
+    ], (err, stdout) => {
+      if (err) return resolve([]);
+      try {
+        let data = JSON.parse(stdout);
+        if (!Array.isArray(data)) data = [data];
+        resolve(data.map((d) => ({
+          name: d.Name || "Unknown",
+          transport: "",
+          isDefault: false,
+        })));
+      } catch {
+        resolve([]);
+      }
+    });
+  });
+}
+
+function parseDshow(stderr) {
+  const lines = stderr.split("\n");
+  const devices = [];
+  let inAudioSection = false;
+  let index = 0;
+
+  for (const line of lines) {
+    // dshow lists video devices first, then audio
+    if (line.includes("DirectShow audio devices")) {
+      inAudioSection = true;
+      continue;
+    }
+    if (inAudioSection && line.includes("DirectShow video devices")) {
+      break;
+    }
+    if (inAudioSection) {
+      // Match device name: [dshow @ ...] "Device Name" (audio)
+      const match = line.match(/"(.+?)"/);
+      if (match) {
+        // On Windows, dshow uses device name (not index) for capture
+        devices.push({
+          index: index,
+          name: match[1],
+        });
+        index++;
       }
     }
   }

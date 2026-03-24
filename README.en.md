@@ -4,12 +4,20 @@
 
 Real-time audio translation app powered by the [Soniox API](https://soniox.com/docs/stt/rt/real-time-translation). Captures audio from microphone, system audio, or both, translates to a target language, and saves conversation history.
 
+Supports **macOS** and **Windows**.
+
 ## Requirements
 
 - **Node.js** >= 18
-- **ffmpeg** (`brew install ffmpeg`)
+- **ffmpeg**
 - **Soniox API Key** (sign up at [soniox.com](https://soniox.com))
-- **BlackHole 2ch** (only required for system audio capture)
+
+### Install ffmpeg
+
+| OS | Command |
+|----|---------|
+| macOS | `brew install ffmpeg` |
+| Windows | `winget install ffmpeg` or download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH |
 
 ## Installation
 
@@ -17,15 +25,36 @@ Real-time audio translation app powered by the [Soniox API](https://soniox.com/d
 # Install dependencies
 npm install
 
+# Build frontend
+npm run build
+
 # Create .env file
 echo "SONIOX_API_KEY=your_api_key_here" > .env
 ```
 
-### BlackHole Setup (for System Audio)
+## Running
+
+```bash
+# Production
+npm start
+
+# Development (run server + client separately)
+npm run dev:server   # Terminal 1
+npm run dev:client   # Terminal 2
+```
+
+- Production: open `http://localhost:3000`
+- Development: open `http://localhost:5173` (Vite dev server, proxies API automatically)
+
+## System Audio Capture
+
+To capture system audio (e.g. Google Meet, Zoom calls), you need a virtual audio driver.
+
+### macOS — BlackHole
 
 ```bash
 brew install blackhole-2ch
-# Restart your Mac after installation
+# Restart after installation
 ```
 
 After installing BlackHole, create an **Aggregate Device** in Audio MIDI Setup:
@@ -35,19 +64,17 @@ After installing BlackHole, create an **Aggregate Device** in Audio MIDI Setup:
 3. Check **BlackHole 2ch** + **your speaker** (e.g. MacBook Pro Speakers)
 4. Go to **System Settings → Sound → Output** → select the Aggregate Device
 
-System audio will be routed through both your speaker and BlackHole. The app auto-detects BlackHole for capture.
+The app auto-detects BlackHole for capture.
 
-## Running
+### Windows — VB-CABLE
 
-```bash
-# Production
-npm start
+1. Download **VB-CABLE** (free) from [vb-audio.com/Cable](https://vb-audio.com/Cable/)
+2. Install and restart your computer
+3. Go to **Sound Settings → Output** → select **CABLE Input** as output device
+4. The app auto-detects "CABLE Output" in the input device list
 
-# Development (auto-reload)
-npm run dev
-```
-
-Open your browser at `http://localhost:3000`
+Alternatively, enable **Stereo Mix** in Sound Settings (if your sound card supports it):
+- Go to **Sound Settings → Recording** → right-click → **Show Disabled Devices** → enable **Stereo Mix**
 
 ## Usage
 
@@ -75,34 +102,53 @@ Each speaker is distinguished by a unique color. Original text and translations 
 
 | Setting | Description |
 |---------|-------------|
-| Audio source | Microphone / System Audio / Both |
-| Mic device | Select microphone (from input device list) |
-| Target language | Translation language (default: Vietnamese) |
+| Audio Source | Microphone / System Audio / Both |
+| Microphone Device | Select microphone (from input device list) |
+| Target Language | Translation language (default: Vietnamese) |
 
-System audio automatically detects BlackHole — no additional configuration needed.
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 19, Vite, Tailwind CSS v4, Socket.IO Client |
+| Backend | Node.js, Express 5, Socket.IO |
+| Audio | ffmpeg (avfoundation on macOS, dshow on Windows) |
+| Speech-to-Text | Soniox API (realtime translation) |
+| Database | SQLite (better-sqlite3) |
 
 ## Project Structure
 
 ```
 node-trans/
-├── public/            # Frontend (vanilla HTML/CSS/JS)
+├── client/              # React frontend (Vite + Tailwind CSS)
 │   ├── index.html
-│   ├── app.js
-│   └── style.css
+│   ├── vite.config.js
+│   └── src/
+│       ├── main.jsx
+│       ├── App.jsx
+│       ├── style.css
+│       ├── hooks/       # useTheme
+│       ├── context/     # SocketContext (useReducer)
+│       ├── components/  # Header, TabNav, StatusBar, Modal
+│       │   ├── live/    # Controls, Transcript, Utterance, PartialResult
+│       │   ├── history/ # SessionList, SessionItem, SessionDetail, SpeakerList
+│       │   └── settings/# SettingsTab
+│       └── utils/       # api.js, constants.js, speakerColors.js
 ├── src/
-│   ├── server.js      # Express + Socket.IO server
+│   ├── server.js        # Express + Socket.IO server
 │   ├── audio/
-│   │   ├── capture.js # ffmpeg audio capture (pause/resume)
-│   │   └── devices.js # List input/output audio devices
+│   │   ├── capture.js   # ffmpeg audio capture (macOS + Windows)
+│   │   └── devices.js   # List input/output devices (macOS + Windows)
 │   ├── soniox/
-│   │   └── session.js # Soniox real-time translation session
+│   │   └── session.js   # Soniox real-time translation session
 │   ├── storage/
-│   │   ├── history.js # SQLite DB (sessions, utterances, speaker aliases)
-│   │   ├── settings.js# Settings storage (~/.node-trans/settings.json)
-│   │   └── export.js  # Export session to Markdown
+│   │   ├── history.js   # SQLite DB (sessions, utterances, speaker aliases)
+│   │   ├── settings.js  # Settings (~/.node-trans/settings.json)
+│   │   └── export.js    # Export session to Markdown
 │   └── routes/
-│       └── api.js     # REST API endpoints
-├── .env               # SONIOX_API_KEY
+│       └── api.js       # REST API endpoints
+├── dist/                # Build output (generated by `npm run build`)
+├── .env                 # SONIOX_API_KEY
 └── package.json
 ```
 
