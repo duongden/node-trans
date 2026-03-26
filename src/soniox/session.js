@@ -1,9 +1,9 @@
 import { RealtimeUtteranceBuffer, SonioxNodeClient } from "@soniox/node";
 import { PassThrough } from "stream";
 
-const client = new SonioxNodeClient();
-
-export function createSession({ targetLanguage = "vi", languageHints = ["en"] } = {}) {
+export function createSession({ targetLanguage = "vi", languageHints = ["en"], apiKey } = {}) {
+  const clientOpts = apiKey ? { api_key: apiKey } : {};
+  const client = new SonioxNodeClient(clientOpts);
   const config = {
     model: "stt-rt-v4",
     audio_format: "pcm_s16le",
@@ -101,9 +101,11 @@ export function createSession({ targetLanguage = "vi", languageHints = ["en"] } 
         if (tokens.length > 0) {
           const origTokens = tokens.filter((t) => t.translation_status !== "translation");
           const transTokens = tokens.filter((t) => t.translation_status === "translation");
+          const speaker = origTokens.find((t) => t.speaker)?.speaker || transTokens.find((t) => t.speaker)?.speaker || null;
           callback({
             originalText: origTokens.map((t) => t.text).join(""),
             translatedText: transTokens.map((t) => t.text).join(""),
+            speaker,
           });
         }
       });
