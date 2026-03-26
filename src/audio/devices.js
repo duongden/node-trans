@@ -12,10 +12,23 @@ export async function listOutputDevices() {
   return IS_WIN ? listOutputDevicesWindows() : listOutputDevicesMac();
 }
 
-// Combined: returns { input: [...], output: [...] }
+// Check if ffmpeg is available
+export function checkFfmpeg() {
+  return new Promise((resolve) => {
+    const proc = spawn("ffmpeg", ["-version"], { stdio: ["pipe", "pipe", "pipe"] });
+    proc.on("error", () => resolve(false));
+    proc.on("close", (code) => resolve(code === 0));
+  });
+}
+
+// Combined: returns { input: [...], output: [...], ffmpegAvailable: bool }
 export async function listAllDevices() {
+  const ffmpegAvailable = await checkFfmpeg();
+  if (!ffmpegAvailable) {
+    return { input: [], output: [], ffmpegAvailable: false };
+  }
   const [input, output] = await Promise.all([listInputDevices(), listOutputDevices()]);
-  return { input, output };
+  return { input, output, ffmpegAvailable: true };
 }
 
 // ─── macOS ───────────────────────────────────────────────
@@ -112,8 +125,15 @@ function listInputDevicesWindows() {
       stderr += data.toString();
     });
 
+    ffmpeg.on("error", (err) => {
+      console.error("[devices] ffmpeg spawn error:", err.message);
+      resolve([]);
+    });
     ffmpeg.on("close", () => {
-      resolve(parseDshow(stderr));
+      console.log("[devices] ffmpeg dshow raw output:\n" + stderr);
+      const devices = parseDshow(stderr);
+      console.log("[devices] parsed devices:", devices);
+      resolve(devices);
     });
   });
 }
@@ -144,28 +164,36 @@ function listOutputDevicesWindows() {
 function parseDshow(stderr) {
   const lines = stderr.split("\n");
   const devices = [];
-  let inAudioSection = false;
   let index = 0;
 
-  for (const line of lines) {
-    // dshow lists video devices first, then audio
-    if (line.includes("DirectShow audio devices")) {
-      inAudioSection = true;
-      continue;
+  // Check if old format with section headers (ffmpeg <7)
+  const hasHeaders = lines.some((l) => l.includes("DirectShow audio devices"));
+
+  if (hasHeaders) {
+    // Old format: section-based parsing
+    let inAudioSection = false;
+    for (const line of lines) {
+      if (line.includes("DirectShow audio devices")) {
+        inAudioSection = true;
+        continue;
+      }
+      if (inAudioSection && line.includes("DirectShow video devices")) {
+        break;
+      }
+      if (inAudioSection && !line.includes("Alternative name")) {
+        const match = line.match(/"(.+?)"/);
+        if (match) {
+          devices.push({ index: index++, name: match[1] });
+        }
+      }
     }
-    if (inAudioSection && line.includes("DirectShow video devices")) {
-      break;
-    }
-    if (inAudioSection) {
-      // Match device name: [dshow @ ...] "Device Name" (audio)
-      const match = line.match(/"(.+?)"/);
+  } else {
+    // New format (ffmpeg 7+): "Device Name" (audio)
+    for (const line of lines) {
+      if (line.includes("Alternative name")) continue;
+      const match = line.match(/"(.+?)"\s*\(audio\)/);
       if (match) {
-        // On Windows, dshow uses device name (not index) for capture
-        devices.push({
-          index: index,
-          name: match[1],
-        });
-        index++;
+        devices.push({ index: index++, name: match[1] });
       }
     }
   }
