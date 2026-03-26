@@ -85,6 +85,19 @@ export const en = {
   srcMic: "Microphone",
   srcSystem: "System Audio",
   srcBoth: "Both (Microphone & System Audio)",
+
+  // Error messages (from server)
+  errNoApiKey: "Soniox API Key not configured. Go to Settings to enter your API key.",
+  errInvalidApiKey: "Invalid API Key. Please check your Soniox API Key in Settings.",
+  errNetwork: "Cannot connect to Soniox. Please check your network connection.",
+  errStartFailed: "Failed to start: {detail}",
+  errSessionNotFound: "Session not found or still active",
+  errSystemDeviceNotFound: "System audio device index {index} not found",
+  errNoLoopbackWin: "System audio device not found. Select a device in Settings, or install VB-CABLE.",
+  errNoLoopbackMac: "BlackHole not installed. BlackHole is required to capture system audio.",
+  errNoDevice: "No device configured for {source}",
+  errAudioCapture: "Audio capture error ({source}): {detail}",
+  errSoniox: "Soniox error: {detail}",
 };
 
 export const vi = {
@@ -174,4 +187,17 @@ export const vi = {
   srcMic: "Microphone",
   srcSystem: "\u00C2m thanh h\u1EC7 th\u1ED1ng",
   srcBoth: "C\u1EA3 hai (Mic & \u00C2m thanh h\u1EC7 th\u1ED1ng)",
+
+  // Error messages (from server)
+  errNoApiKey: "Ch\u01B0a c\u00E0i \u0111\u1EB7t Soniox API Key. V\u00E0o C\u00E0i \u0111\u1EB7t \u0111\u1EC3 nh\u1EADp API key.",
+  errInvalidApiKey: "API Key kh\u00F4ng h\u1EE3p l\u1EC7. Ki\u1EC3m tra l\u1EA1i Soniox API Key trong C\u00E0i \u0111\u1EB7t.",
+  errNetwork: "Kh\u00F4ng th\u1EC3 k\u1EBFt n\u1ED1i \u0111\u1EBFn Soniox. Ki\u1EC3m tra k\u1EBFt n\u1ED1i m\u1EA1ng.",
+  errStartFailed: "Kh\u00F4ng th\u1EC3 b\u1EAFt \u0111\u1EA7u: {detail}",
+  errSessionNotFound: "Kh\u00F4ng t\u00ECm th\u1EA5y phi\u00EAn ho\u1EB7c phi\u00EAn v\u1EABn \u0111ang ho\u1EA1t \u0111\u1ED9ng",
+  errSystemDeviceNotFound: "Kh\u00F4ng t\u00ECm th\u1EA5y thi\u1EBFt b\u1ECB \u00E2m thanh h\u1EC7 th\u1ED1ng (index {index})",
+  errNoLoopbackWin: "Kh\u00F4ng t\u00ECm th\u1EA5y thi\u1EBFt b\u1ECB \u00E2m thanh h\u1EC7 th\u1ED1ng. Ch\u1ECDn thi\u1EBFt b\u1ECB trong C\u00E0i \u0111\u1EB7t ho\u1EB7c c\u00E0i VB-CABLE.",
+  errNoLoopbackMac: "Ch\u01B0a c\u00E0i BlackHole. C\u1EA7n BlackHole \u0111\u1EC3 thu \u00E2m thanh h\u1EC7 th\u1ED1ng.",
+  errNoDevice: "Ch\u01B0a c\u1EA5u h\u00ECnh thi\u1EBFt b\u1ECB cho {source}",
+  errAudioCapture: "L\u1ED7i thu \u00E2m ({source}): {detail}",
+  errSoniox: "L\u1ED7i Soniox: {detail}",
 };

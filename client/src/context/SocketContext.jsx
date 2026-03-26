@@ -19,6 +19,7 @@ const initialState = {
   speakerColorMap: new Map(),
   listeningSince: null,
   pausedElapsed: 0,
+  sessionListVersion: 0,
 };
 
 function reducer(state, action) {
@@ -83,7 +84,8 @@ function reducer(state, action) {
         isPaused,
         currentSessionId: isListening ? d.sessionId : null,
         pendingAction: false,
-        statusText,
+        statusKey,
+        statusParams,
         statusClass,
         partialResult: null,
         listeningSince,
@@ -103,14 +105,17 @@ function reducer(state, action) {
     }
     case "PARTIAL":
       return { ...state, partialResult: action.payload };
-    case "ERROR":
+    case "ERROR": {
+      const err = action.payload;
       return {
         ...state,
         pendingAction: false,
-        statusKey: null,
-        statusText: action.payload.message,
+        statusKey: err.key || null,
+        statusParams: err.params || undefined,
+        statusText: err.key ? null : err.message,
         statusClass: "error",
       };
+    }
     case "CONNECTED":
       if (!state.isListening) {
         return { ...state, statusKey: "connected", statusClass: "" };
@@ -162,6 +167,8 @@ function reducer(state, action) {
         partialResult: null,
         speakerColorMap: new Map(),
       };
+    case "REFRESH_SESSION_LIST":
+      return { ...state, sessionListVersion: state.sessionListVersion + 1 };
     default:
       return state;
   }

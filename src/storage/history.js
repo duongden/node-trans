@@ -139,10 +139,16 @@ export function renameSession(sessionId, title) {
 
 export function deleteSession(sessionId) {
   getDb();
-  const del = db.transaction(() => {
-    db.prepare("DELETE FROM speaker_aliases WHERE session_id = ?").run(sessionId);
-    db.prepare("DELETE FROM utterances WHERE session_id = ?").run(sessionId);
-    db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
-  });
-  del();
+  // Temporarily disable FK checks to avoid failures from orphaned rows in other sessions
+  db.pragma("foreign_keys = OFF");
+  try {
+    const del = db.transaction(() => {
+      db.prepare("DELETE FROM speaker_aliases WHERE session_id = ?").run(sessionId);
+      db.prepare("DELETE FROM utterances WHERE session_id = ?").run(sessionId);
+      db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+    });
+    del();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
 }

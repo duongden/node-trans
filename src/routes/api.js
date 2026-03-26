@@ -18,6 +18,12 @@ async function lazyExport() {
 
 const router = Router();
 
+// Disable caching for all API responses
+router.use((req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+});
+
 // Devices
 router.get("/devices", async (req, res) => {
   try {
@@ -89,9 +95,14 @@ router.put("/sessions/:id/speakers/:speaker", async (req, res) => {
 });
 
 router.delete("/sessions/:id", async (req, res) => {
-  const { deleteSession } = await lazyHistory();
-  deleteSession(req.params.id);
-  res.json({ ok: true });
+  try {
+    const { deleteSession } = await lazyHistory();
+    deleteSession(Number(req.params.id));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Delete session error:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Export

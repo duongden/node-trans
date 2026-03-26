@@ -21,7 +21,7 @@ export default function App() {
           <div className={`flex-1 overflow-hidden flex-col ${activeTab === "live" ? "flex" : "hidden"}`}>
             <LiveTab />
           </div>
-          <div className={`flex-1 overflow-hidden flex-col ${activeTab === "settings" ? "flex" : "hidden"}`}>
+          <div className={`flex-1 overflow-y-auto flex-col ${activeTab === "settings" ? "flex" : "hidden"}`}>
             <SettingsTab active={activeTab === "settings"} />
           </div>
         </div>

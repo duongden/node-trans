@@ -147,6 +147,7 @@ export default function Controls() {
           setConfirmDelete(false);
           await deleteSession(id);
           dispatch({ type: "DESELECT_SESSION" });
+          dispatch({ type: "REFRESH_SESSION_LIST" });
         }}
         onCancel={() => setConfirmDelete(false)}
       />
@@ -168,6 +169,7 @@ export default function Controls() {
               utterances: state.utterances,
             },
           });
+          dispatch({ type: "REFRESH_SESSION_LIST" });
         }}
       />
     </div>

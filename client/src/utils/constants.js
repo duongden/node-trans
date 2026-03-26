@@ -10,11 +10,6 @@ export const SOURCE_LABELS_FULL = {
   both: "Mic + System",
 };
 
-export const LANG_LABELS = {
-  vi: "VI", en: "EN", ja: "JA", ko: "KO",
-  zh: "ZH", fr: "FR", es: "ES", de: "DE",
-};
-
 export const LANG_LABELS_FULL = {
   vi: "Tiếng Việt", en: "English", ja: "日本語", ko: "한국어",
   zh: "中文", fr: "Français", es: "Español", de: "Deutsch",
@@ -31,8 +26,3 @@ export const LANGUAGE_OPTIONS = [
   { value: "de", label: "Deutsch" },
 ];
 
-export const AUDIO_SOURCE_OPTIONS = [
-  { value: "mic", label: "Microphone" },
-  { value: "system", label: "System Audio" },
-  { value: "both", label: "Both (Microphone & System Audio)" },
-];

@@ -67,7 +67,7 @@ function SidebarItem({ session, isActive, isSelected, disabled, selectMode, chec
 export default function Sidebar() {
   const { state, dispatch } = useSocket();
   const { t } = useI18n();
-  const { isListening, currentSessionId, selectedSessionId } = state;
+  const { isListening, currentSessionId, selectedSessionId, sessionListVersion } = state;
 
   const [sessions, setSessions] = useState([]);
   const [collapsed, setCollapsed] = useState(false);
@@ -77,23 +77,14 @@ export default function Sidebar() {
   const longPressTimer = useRef(null);
   const longPressedRef = useRef(false);
 
-  const loadSessions = useCallback(async () => {
-    try {
-      const data = await fetchSessions();
-      setSessions(data);
-    } catch {
-      setSessions([]);
-    }
-  }, []);
-
+  // Reload sessions on mount, when listening state changes, or when sessionListVersion changes
   useEffect(() => {
-    loadSessions();
-  }, [loadSessions]);
-
-  // Refresh when listening state changes (session started/stopped)
-  useEffect(() => {
-    loadSessions();
-  }, [isListening, loadSessions]);
+    let cancelled = false;
+    fetchSessions()
+      .then((data) => { if (!cancelled) setSessions(data); })
+      .catch(() => { if (!cancelled) setSessions([]); });
+    return () => { cancelled = true; };
+  }, [isListening, sessionListVersion]);
 
   const handleLongPress = useCallback((sessionId) => {
     longPressedRef.current = false;
@@ -132,6 +123,13 @@ export default function Sidebar() {
 
   const handleBulkDelete = () => {
     if (checkedIds.size === 0) return;
+    // Prevent deleting the currently active (recording) session
+    if (currentSessionId && checkedIds.has(currentSessionId)) {
+      const next = new Set(checkedIds);
+      next.delete(currentSessionId);
+      setCheckedIds(next);
+      if (next.size === 0) return;
+    }
     setConfirmDelete("bulk");
   };
 
@@ -162,21 +160,34 @@ export default function Sidebar() {
 
   const handleDelete = async () => {
     if (!confirmDelete) return;
-    if (confirmDelete === "bulk") {
-      await Promise.all([...checkedIds].map((id) => deleteSession(id)));
-      if (checkedIds.has(selectedSessionId)) {
-        dispatch({ type: "DESELECT_SESSION" });
-      }
-      setSelectMode(false);
-      setCheckedIds(new Set());
-    } else {
-      await deleteSession(confirmDelete);
-      if (selectedSessionId === confirmDelete) {
-        dispatch({ type: "DESELECT_SESSION" });
-      }
-    }
+    const idsToDelete = confirmDelete === "bulk"
+      ? [...checkedIds].filter((id) => id !== currentSessionId)
+      : confirmDelete !== currentSessionId ? [confirmDelete] : [];
+
+    // Close dialog & exit select mode immediately
     setConfirmDelete(null);
-    loadSessions();
+    setSelectMode(false);
+    setCheckedIds(new Set());
+
+    if (idsToDelete.length === 0) return;
+
+    // Delete from server
+    try {
+      await Promise.all(idsToDelete.map((id) => deleteSession(id)));
+    } catch {
+      // ignore
+    }
+
+    // Clear live tab if not currently recording
+    if (!isListening) {
+      dispatch({ type: "CLEAR_TRANSCRIPT" });
+      dispatch({ type: "DESELECT_SESSION" });
+    } else if (selectedSessionId) {
+      dispatch({ type: "DESELECT_SESSION" });
+    }
+
+    // Trigger session list refresh globally
+    dispatch({ type: "REFRESH_SESSION_LIST" });
   };
 
   if (collapsed) {

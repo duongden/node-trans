@@ -46,7 +46,13 @@ const io = new Server(server);
 
 app.use(compression());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "../dist")));
+app.use(express.static(path.join(__dirname, "../dist"), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith(".html")) {
+      res.set("Cache-Control", "no-store");
+    }
+  },
+}));
 app.use("/api", apiRoutes);
 
 // Active sessions per socket
@@ -68,7 +74,7 @@ io.on("connection", (socket) => {
       const settings = loadSettings();
 
       if (!settings.sonioxApiKey) {
-        socket.emit("error", { message: "Chưa cài đặt Soniox API Key. Vào Settings để nhập API key." });
+        socket.emit("error", { key: "errNoApiKey" });
         return;
       }
 
@@ -79,7 +85,7 @@ io.on("connection", (socket) => {
         // Resume existing session
         const existing = history.getSession(resumeSessionId);
         if (!existing || !existing.ended_at) {
-          socket.emit("error", { message: "Session not found or still active" });
+          socket.emit("error", { key: "errSessionNotFound" });
           return;
         }
         history.reopenSession(resumeSessionId);
@@ -121,7 +127,7 @@ io.on("connection", (socket) => {
           if (systemDevice) {
             systemCaptureDev = isWin ? systemDevice.name : systemDevice.index;
           } else {
-            socket.emit("error", { message: `System audio device index ${systemIndex} not found` });
+            socket.emit("error", { key: "errSystemDeviceNotFound", params: { index: systemIndex } });
           }
         } else {
           // Auto-detect: macOS: BlackHole, Windows: VB-CABLE / Stereo Mix / CABLE Output
@@ -132,10 +138,7 @@ io.on("connection", (socket) => {
           if (loopback) {
             systemCaptureDev = isWin ? loopback.name : loopback.index;
           } else {
-            const hint = isWin
-              ? "System audio device not found. Select a device in Settings, or install VB-CABLE."
-              : "BlackHole chưa được cài đặt. Cần BlackHole để capture system audio.";
-            socket.emit("error", { message: hint });
+            socket.emit("error", { key: isWin ? "errNoLoopbackWin" : "errNoLoopbackMac" });
           }
         }
       }
@@ -168,14 +171,14 @@ io.on("connection", (socket) => {
       for (const source of sources) {
         const captureDev = source === "mic" ? micCaptureDev : systemCaptureDev;
         if (captureDev == null) {
-          socket.emit("error", { message: `No device configured for ${source}` });
+          socket.emit("error", { key: "errNoDevice", params: { source } });
           continue;
         }
 
         // Start audio capture
         const capture = startCapture(captureDev);
         capture.onError((err) => {
-          socket.emit("error", { message: `Audio capture error (${source}): ${err.message}` });
+          socket.emit("error", { key: "errAudioCapture", params: { source, detail: err.message } });
         });
 
         // Start Soniox session with per-source target language
@@ -199,7 +202,7 @@ io.on("connection", (socket) => {
         });
 
         soniox.onError((err) => {
-          socket.emit("error", { message: `Soniox error: ${err.message}` });
+          socket.emit("error", { key: "errSoniox", params: { detail: err.message } });
         });
 
         await soniox.connect();
@@ -222,12 +225,12 @@ io.on("connection", (socket) => {
       socket.emit("status", { listening: true, sessionId: dbSessionId, audioSource });
       console.log(`Started listening: socket=${socket.id}, session=${dbSessionId}, source=${audioSource}`);
     } catch (err) {
-      const msg = err.message?.includes("authenticate") || err.message?.includes("401") || err.message?.includes("Unauthorized")
-        ? "API Key không hợp lệ. Kiểm tra lại Soniox API Key trong Settings."
+      const key = err.message?.includes("authenticate") || err.message?.includes("401") || err.message?.includes("Unauthorized")
+        ? "errInvalidApiKey"
         : err.message?.includes("ENOTFOUND") || err.message?.includes("ECONNREFUSED")
-        ? "Không thể kết nối đến Soniox. Kiểm tra kết nối mạng."
-        : `Không thể bắt đầu: ${err.message}`;
-      socket.emit("error", { message: msg });
+        ? "errNetwork"
+        : "errStartFailed";
+      socket.emit("error", { key, params: { detail: err.message } });
       console.error("Start error:", err);
     }
   });

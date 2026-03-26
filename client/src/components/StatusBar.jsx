@@ -15,7 +15,7 @@ export default function StatusBar() {
   const { state } = useSocket();
   const { t } = useI18n();
 
-  const text = state.statusKey ? t(state.statusKey, state.statusParams) : state.statusText;
+  const text = state.statusKey ? t(state.statusKey, state.statusParams) : (state.statusText || "");
 
   return <div className={variants[state.statusClass] || variants[""]}>{text}</div>;
 }

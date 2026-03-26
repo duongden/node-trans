@@ -1,17 +1,19 @@
 const API = "/api";
+const NO_CACHE = { cache: "no-store" };
 
 export async function fetchSessions(limit = 50, offset = 0) {
-  const res = await fetch(`${API}/sessions?limit=${limit}&offset=${offset}`);
+  const res = await fetch(`${API}/sessions?limit=${limit}&offset=${offset}`, NO_CACHE);
   return res.json();
 }
 
 export async function fetchSession(id) {
-  const res = await fetch(`${API}/sessions/${id}`);
+  const res = await fetch(`${API}/sessions/${id}`, NO_CACHE);
   return res.json();
 }
 
 export async function deleteSession(id) {
-  return fetch(`${API}/sessions/${id}`, { method: "DELETE" });
+  const res = await fetch(`${API}/sessions/${id}`, { method: "DELETE" });
+  return res.json();
 }
 
 export async function renameSession(id, title) {
@@ -31,7 +33,7 @@ export async function setSpeakerAlias(sessionId, speaker, alias) {
 }
 
 export async function fetchSettings() {
-  const res = await fetch(`${API}/settings`);
+  const res = await fetch(`${API}/settings`, NO_CACHE);
   return res.json();
 }
 
@@ -45,7 +47,7 @@ export async function saveSettings(settings) {
 }
 
 export async function fetchDevices() {
-  const res = await fetch(`${API}/devices`);
+  const res = await fetch(`${API}/devices`, NO_CACHE);
   return res.json();
 }
 
