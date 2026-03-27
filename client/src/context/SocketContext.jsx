@@ -4,6 +4,24 @@ import { getSpeakerIndex } from "../utils/speakerColors";
 
 const SocketContext = createContext(null);
 
+const OVERLAY_DEFAULTS = {
+  opacity: 0.8,
+  scale: 1,
+  displayMode: "both",
+  textAlign: "left",
+  bgColor: "dark",
+  maxLines: 5,
+  fontFamily: "system-ui, sans-serif",
+};
+
+function loadOverlaySettings() {
+  try {
+    const saved = localStorage.getItem("overlay-settings");
+    if (saved) return { ...OVERLAY_DEFAULTS, ...JSON.parse(saved) };
+  } catch {}
+  return { ...OVERLAY_DEFAULTS };
+}
+
 const initialState = {
   isListening: false,
   isPaused: false,
@@ -20,6 +38,9 @@ const initialState = {
   listeningSince: null,
   pausedElapsed: 0,
   sessionListVersion: 0,
+  overlayVisible: false,
+  overlaySettings: loadOverlaySettings(),
+  activeContext: null,
 };
 
 function reducer(state, action) {
@@ -49,6 +70,20 @@ function reducer(state, action) {
         // Stopped
         listeningSince = null;
         pausedElapsed = 0;
+        return {
+          ...state,
+          isListening,
+          isPaused,
+          currentSessionId: null,
+          pendingAction: false,
+          statusKey,
+          statusParams,
+          statusClass,
+          partialResults: {},
+          listeningSince,
+          pausedElapsed,
+          activeContext: null,
+        };
       } else if (!state.isListening) {
         // Just started — keep utterances if resuming a selected session
         const isResume = state.selectedSessionId && state.selectedSessionId === d.sessionId;
@@ -180,6 +215,21 @@ function reducer(state, action) {
       };
     case "REFRESH_SESSION_LIST":
       return { ...state, sessionListVersion: state.sessionListVersion + 1 };
+    case "TOGGLE_OVERLAY": {
+      return { ...state, overlayVisible: !state.overlayVisible };
+    }
+    case "UPDATE_OVERLAY_SETTINGS": {
+      const overlaySettings = { ...state.overlaySettings, ...action.payload };
+      localStorage.setItem("overlay-settings", JSON.stringify(overlaySettings));
+      if (window.electronAPI?.sendOverlaySettings) {
+        window.electronAPI.sendOverlaySettings(overlaySettings);
+      }
+      return { ...state, overlaySettings };
+    }
+    case "OVERLAY_CLOSED":
+      return { ...state, overlayVisible: false };
+    case "SET_CONTEXT":
+      return { ...state, activeContext: action.payload };
     default:
       return state;
   }
@@ -190,12 +240,40 @@ export function SocketProvider({ children }) {
   const socket = useMemo(() => io(), []);
 
   useEffect(() => {
-    socket.on("status", (data) => dispatch({ type: "STATUS", payload: data }));
-    socket.on("utterance", (data) => dispatch({ type: "UTTERANCE", payload: data }));
-    socket.on("partial-result", (data) => dispatch({ type: "PARTIAL", payload: data }));
+    const fwdOverlay = window.electronAPI?.sendOverlayData;
+
+    socket.on("status", (data) => {
+      dispatch({ type: "STATUS", payload: data });
+      if (!data.listening && fwdOverlay) {
+        fwdOverlay({ type: "clear" });
+      }
+    });
+    socket.on("utterance", (data) => {
+      dispatch({ type: "UTTERANCE", payload: data });
+      if (fwdOverlay) fwdOverlay({ type: "utterance-clear-partial", payload: data });
+    });
+    socket.on("partial-result", (data) => {
+      dispatch({ type: "PARTIAL", payload: data });
+      if (fwdOverlay) fwdOverlay({ type: "partial", payload: data });
+    });
     socket.on("error", (data) => dispatch({ type: "ERROR", payload: data }));
     socket.on("connect", () => dispatch({ type: "CONNECTED" }));
     socket.on("disconnect", () => dispatch({ type: "DISCONNECTED" }));
+
+    // Listen for overlay closed from Electron
+    if (window.electronAPI?.onOverlayClosed) {
+      window.electronAPI.onOverlayClosed(() => dispatch({ type: "OVERLAY_CLOSED" }));
+    }
+
+    // Load overlay settings from server
+    fetch("/api/settings/overlay", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && typeof data === "object" && !data.error) {
+          dispatch({ type: "UPDATE_OVERLAY_SETTINGS", payload: data });
+        }
+      })
+      .catch(() => {});
 
     return () => {
       socket.off();

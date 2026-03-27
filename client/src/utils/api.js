@@ -16,6 +16,14 @@ export async function deleteSession(id) {
   return res.json();
 }
 
+export async function updateSessionContext(id, context) {
+  return fetch(`${API}/sessions/${id}/context`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ context }),
+  });
+}
+
 export async function renameSession(id, title) {
   return fetch(`${API}/sessions/${id}`, {
     method: "PATCH",
@@ -39,6 +47,20 @@ export async function fetchSettings() {
 
 export async function saveSettings(settings) {
   const res = await fetch(`${API}/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  return res.json();
+}
+
+export async function fetchOverlaySettings() {
+  const res = await fetch(`${API}/settings/overlay`, NO_CACHE);
+  return res.json();
+}
+
+export async function saveOverlaySettings(settings) {
+  const res = await fetch(`${API}/settings/overlay`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),

@@ -60,6 +60,19 @@ router.put("/settings", (req, res) => {
   res.json(updated);
 });
 
+// Overlay settings
+router.get("/settings/overlay", (req, res) => {
+  const settings = loadSettings();
+  res.json(settings.overlay || {});
+});
+
+router.put("/settings/overlay", (req, res) => {
+  const current = loadSettings();
+  const overlay = { ...(current.overlay || {}), ...req.body };
+  const updated = saveSettings({ ...current, overlay });
+  res.json(updated.overlay);
+});
+
 // Sessions
 router.get("/sessions", async (req, res) => {
   const { getSessions } = await lazyHistory();
@@ -84,6 +97,13 @@ router.patch("/sessions/:id", async (req, res) => {
   const { title } = req.body;
   if (title == null) return res.status(400).json({ error: "title is required" });
   renameSession(req.params.id, title);
+  res.json({ ok: true });
+});
+
+router.patch("/sessions/:id/context", async (req, res) => {
+  const { updateSessionContext } = await lazyHistory();
+  const { context } = req.body;
+  updateSessionContext(req.params.id, context ?? null);
   res.json({ ok: true });
 });
 

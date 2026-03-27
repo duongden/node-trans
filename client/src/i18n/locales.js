@@ -48,6 +48,7 @@ export const en = {
   duration: "Duration",
   source: "Source",
   target: "Target",
+  context: "Context",
   utterances: "Utterances",
   inProgress: "In progress",
 
@@ -58,6 +59,10 @@ export const en = {
   deleteSessionsConfirm: "Are you sure you want to delete {count} session(s)? This action cannot be undone.",
   renameSession: "Rename session",
   renameSpeaker: "Rename {name}",
+
+  // Settings sections
+  sectionGeneral: "General",
+  sectionAudio: "Audio & Translation",
 
   // Settings
   sonioxApiKey: "Soniox API Key:",
@@ -70,6 +75,10 @@ export const en = {
   audioSource: "Audio Source:",
   micDevice: "Microphone Device:",
   systemDevice: "System Audio Device:",
+  context: "Context",
+  contextPlaceholder: "Enter custom context prompt",
+  defaultContext: "Default Context:",
+  defaultContextHint: "Applied automatically when starting a new session",
   none: "-- None --",
   autoDetect: "-- Auto-detect --",
   systemDeviceHint: "Windows: select Stereo Mix or VB-CABLE input device",
@@ -98,6 +107,25 @@ export const en = {
   errNoDevice: "No device configured for {source}",
   errAudioCapture: "Audio capture error ({source}): {detail}",
   errSoniox: "Soniox error: {detail}",
+
+  // Overlay
+  overlay: "Overlay",
+  overlaySettings: "Overlay Settings",
+  overlayOpacity: "Opacity:",
+  overlayFontScale: "Font Scale:",
+  overlayTextAlign: "Text Alignment:",
+  overlayBgColor: "Background:",
+  overlayFontFamily: "Font Family:",
+  overlayDisplayMode: "Display Mode:",
+  overlayAlignLeft: "Left",
+  overlayAlignCenter: "Center",
+  overlayAlignRight: "Right",
+  overlayBgDark: "Dark",
+  overlayBgLight: "Light",
+  overlayModeBoth: "Partial + Final",
+  overlayModeFinal: "Final only",
+  overlayModePartial: "Partial only",
+  overlayMaxLines: "Max Lines:",
 };
 
 export const vi = {
@@ -150,6 +178,7 @@ export const vi = {
   duration: "Th\u1EDDi l\u01B0\u1EE3ng",
   source: "Ngu\u1ED3n",
   target: "\u0110\u00EDch",
+  context: "Ng\u1EEF c\u00E1nh",
   utterances: "C\u00E2u n\u00F3i",
   inProgress: "\u0110ang di\u1EC5n ra",
 
@@ -160,6 +189,10 @@ export const vi = {
   deleteSessionsConfirm: "B\u1EA1n c\u00F3 ch\u1EAFc mu\u1ED1n x\u00F3a {count} phi\u00EAn? Thao t\u00E1c n\u00E0y kh\u00F4ng th\u1EC3 ho\u00E0n t\u00E1c.",
   renameSession: "\u0110\u1ED5i t\u00EAn phi\u00EAn",
   renameSpeaker: "\u0110\u1ED5i t\u00EAn {name}",
+
+  // Settings sections
+  sectionGeneral: "C\u00E0i \u0111\u1EB7t chung",
+  sectionAudio: "\u00C2m thanh & D\u1ECBch thu\u1EADt",
 
   // Settings
   sonioxApiKey: "Soniox API Key:",
@@ -172,6 +205,10 @@ export const vi = {
   audioSource: "Ngu\u1ED3n \u00E2m thanh:",
   micDevice: "Thi\u1EBFt b\u1ECB Microphone:",
   systemDevice: "Thi\u1EBFt b\u1ECB \u00E2m thanh h\u1EC7 th\u1ED1ng:",
+  context: "Ng\u1EEF c\u00E1nh",
+  contextPlaceholder: "Nh\u1EADp prompt ng\u1EEF c\u00E1nh t\u00F9y ch\u1EC9nh",
+  defaultContext: "Ng\u1EEF c\u1EA3nh m\u1EB7c \u0111\u1ECBnh:",
+  defaultContextHint: "T\u1EF1 \u0111\u1ED9ng \u00E1p d\u1EE5ng khi b\u1EAFt \u0111\u1EA7u phi\u00EAn m\u1EDBi",
   none: "-- Kh\u00F4ng --",
   autoDetect: "-- T\u1EF1 \u0111\u1ED9ng --",
   systemDeviceHint: "Windows: ch\u1ECDn Stereo Mix ho\u1EB7c VB-CABLE",
@@ -200,4 +237,23 @@ export const vi = {
   errNoDevice: "Ch\u01B0a c\u1EA5u h\u00ECnh thi\u1EBFt b\u1ECB cho {source}",
   errAudioCapture: "L\u1ED7i thu \u00E2m ({source}): {detail}",
   errSoniox: "L\u1ED7i Soniox: {detail}",
+
+  // Overlay
+  overlay: "Overlay",
+  overlaySettings: "C\u00E0i \u0111\u1EB7t Overlay",
+  overlayOpacity: "\u0110\u1ED9 m\u1EDD:",
+  overlayFontScale: "C\u1EE1 ch\u1EEF:",
+  overlayTextAlign: "C\u0103n ch\u1EEF:",
+  overlayBgColor: "N\u1EC1n:",
+  overlayFontFamily: "Font ch\u1EEF:",
+  overlayDisplayMode: "Ch\u1EBF \u0111\u1ED9 hi\u1EC3n th\u1ECB:",
+  overlayAlignLeft: "Tr\u00E1i",
+  overlayAlignCenter: "Gi\u1EEFa",
+  overlayAlignRight: "Ph\u1EA3i",
+  overlayBgDark: "T\u1ED1i",
+  overlayBgLight: "S\u00E1ng",
+  overlayModeBoth: "T\u1EA1m th\u1EDDi + Ho\u00E0n ch\u1EC9nh",
+  overlayModeFinal: "Ch\u1EC9 ho\u00E0n ch\u1EC9nh",
+  overlayModePartial: "Ch\u1EC9 t\u1EA1m th\u1EDDi",
+  overlayMaxLines: "S\u1ED1 d\u00F2ng t\u1ED1i \u0111a:",
 };
