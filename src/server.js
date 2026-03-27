@@ -217,6 +217,7 @@ io.on("connection", (socket) => {
             ollamaBaseUrl: settings.ollamaBaseUrl,
             ollamaModel: settings.ollamaModel,
             libreTranslateUrl: settings.libreTranslateUrl,
+            context: sessionContext,
           };
           if (settings.hfToken) {
             const createDiarizeSession = await getDiarizeSession();

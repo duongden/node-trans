@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useSocket } from "../context/SocketContext";
 import { useI18n } from "../i18n/I18nContext";
 import { fetchSessions, fetchSession, deleteSession } from "../utils/api";
-import { SOURCE_LABELS } from "../utils/constants";
 import { ConfirmDialog } from "./Modal";
 
 function formatDuration(startedAt, endedAt) {
@@ -18,20 +17,12 @@ function SidebarItem({ session, isActive, isSelected, disabled, selectMode, chec
   const startDate = new Date(session.started_at + "Z");
   const date = startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const time = startDate.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-  const hasCustomTitle = !!session.title;
   const title = session.title || `${date} ${time}`;
-  const source = SOURCE_LABELS[session.audio_source] || session.audio_source;
   const duration = formatDuration(session.started_at, session.ended_at);
 
   const meta = [];
-  if (hasCustomTitle) meta.push(`${date} ${time}`);
+  meta.push(`${date} ${time}`);
   if (duration) meta.push(duration);
-  meta.push(source);
-  if (session.context) {
-    const ctxText = session.context.length > 18 ? `${session.context.slice(0, 18)}...` : session.context;
-    meta.push(ctxText);
-  }
-  if (session.utterance_count > 0) meta.push(`${session.utterance_count} ${t("msgs")}`);
 
   return (
     <div
@@ -56,11 +47,11 @@ function SidebarItem({ session, isActive, isSelected, disabled, selectMode, chec
         />
       )}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {isActive && (
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
           )}
-          <span className="font-medium text-sm text-gray-800 dark:text-gray-100 truncate flex-1">
+          <span className="font-medium text-sm text-gray-800 dark:text-gray-100">
             {title}
           </span>
         </div>

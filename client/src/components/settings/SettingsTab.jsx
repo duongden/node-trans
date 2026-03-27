@@ -67,7 +67,9 @@ export default function SettingsModal({ onClose }) {
       setDefaultContext(settings.defaultContext || "none");
       setDefaultCustomContext(settings.defaultCustomContext || "");
       if (settings.transcriptionEngine === "local-whisper") {
-        fetch("/api/local/status").then((r) => r.json()).then(setLocalStatus).catch(() => {});
+        const wm = settings.whisperModel || "base";
+        const om = settings.ollamaModel || "llama3.2";
+        fetch(`/api/local/status?whisperModel=${wm}&ollamaModel=${om}`).then((r) => r.json()).then(setLocalStatus).catch(() => {});
       }
     }).catch(() => {});
   }, []);
@@ -81,6 +83,10 @@ export default function SettingsModal({ onClose }) {
   useEffect(() => {
     if (setupLogRef.current) setupLogRef.current.scrollTop = setupLogRef.current.scrollHeight;
   }, [setupLog]);
+
+  const fetchStatus = (wm = whisperModel, om = ollamaModel) => {
+    fetch(`/api/local/status?whisperModel=${wm}&ollamaModel=${om}`).then((r) => r.json()).then(setLocalStatus).catch(() => {});
+  };
 
   const startSetup = () => {
     if (setupRunning) return;
@@ -97,7 +103,7 @@ export default function SettingsModal({ onClose }) {
         setSetupRunning(false);
         setSetupDone(true);
         es.close();
-        fetch("/api/local/status").then((r) => r.json()).then(setLocalStatus).catch(() => {});
+        fetchStatus();
       } else if (data.error) {
         setSetupRunning(false);
         setSetupError(data.error);
@@ -306,7 +312,7 @@ export default function SettingsModal({ onClose }) {
                       onClick={() => {
                         setTranscriptionEngine(opt.value);
                         if (opt.value === "local-whisper") {
-                          fetch("/api/local/status").then((r) => r.json()).then(setLocalStatus).catch(() => {});
+                          fetchStatus();
                         }
                       }}
                       className={`cursor-pointer px-4 py-2 rounded-xl text-sm font-medium border transition-all duration-200 ${
@@ -344,7 +350,7 @@ export default function SettingsModal({ onClose }) {
                 <>
                   <div>
                     <label className={labelCls}>{t("whisperModel")}</label>
-                    <select className={`${selectCls} max-w-xs`} value={whisperModel} onChange={(e) => setWhisperModel(e.target.value)}>
+                    <select className={`${selectCls} max-w-xs`} value={whisperModel} onChange={(e) => { setWhisperModel(e.target.value); fetchStatus(e.target.value, ollamaModel); }}>
                       {WHISPER_MODEL_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
@@ -374,7 +380,7 @@ export default function SettingsModal({ onClose }) {
                           value={localTranslationEngine}
                           onChange={(e) => {
                             setLocalTranslationEngine(e.target.value);
-                            fetch("/api/local/status").then((r) => r.json()).then(setLocalStatus).catch(() => {});
+                            fetchStatus();
                           }}
                         >
                           <option value="none">{t("none")}</option>
@@ -395,7 +401,7 @@ export default function SettingsModal({ onClose }) {
                       {localTranslationEngine === "ollama" && (
                         <div>
                           <label className={labelCls}>{t("ollamaModel")}</label>
-                          <select className={`${selectCls} max-w-xs`} value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}>
+                          <select className={`${selectCls} max-w-xs`} value={ollamaModel} onChange={(e) => { setOllamaModel(e.target.value); fetchStatus(whisperModel, e.target.value); }}>
                             {OLLAMA_MODEL_OPTIONS.map((o) => (
                               <option key={o.value} value={o.value}>{o.label}</option>
                             ))}

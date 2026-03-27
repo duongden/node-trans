@@ -8,7 +8,7 @@ const LANG_NAMES = {
  * Returns { translated, lang } — translated is empty string on failure or when disabled.
  */
 export async function translateText(text, sourceLang, settings) {
-  const { localTranslationEngine, ollamaBaseUrl, ollamaModel, libreTranslateUrl, targetLanguage } = settings;
+  const { localTranslationEngine, ollamaBaseUrl, ollamaModel, libreTranslateUrl, targetLanguage, context } = settings;
 
   if (!text || !localTranslationEngine || localTranslationEngine === "none") {
     return { translated: "", lang: null };
@@ -23,7 +23,7 @@ export async function translateText(text, sourceLang, settings) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: ollamaModel,
-          prompt: `Translate the following text to ${targetLangName}. Reply with only the translation, no explanation:\n\n${text}`,
+          prompt: `${context ? `Context: ${context}\n\n` : ""}Translate the following text to ${targetLangName}. Reply with only the translation, no explanation:\n\n${text}`,
           stream: false,
         }),
         signal: AbortSignal.timeout(15000),

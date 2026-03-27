@@ -43,6 +43,7 @@ export function createSession({
   libreTranslateUrl = "http://localhost:5000",
   languageHints = ["en"],
   hfToken = "",
+  context = null,
 } = {}) {
   let _onPartial = null;
   let _onUtterance = null;
@@ -65,6 +66,7 @@ export function createSession({
     ollamaModel,
     libreTranslateUrl,
     targetLanguage,
+    context,
   };
 
   async function handleUtterance({ text, speaker }) {
@@ -109,7 +111,7 @@ export function createSession({
     fallbackSession = createWhisperSession({
       targetLanguage, whisperLanguage, whisperModel,
       localTranslationEngine, ollamaBaseUrl, ollamaModel,
-      libreTranslateUrl, languageHints,
+      libreTranslateUrl, languageHints, context,
     });
     fallbackSession.onPartial((p) => _onPartial?.(p));
     fallbackSession.onUtterance((u) => _onUtterance?.(u));

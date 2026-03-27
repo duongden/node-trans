@@ -70,9 +70,11 @@ export function getDb() {
 
 export function createSession(audioSource, targetLanguage, deviceName, context = null) {
   getDb();
+  const { cnt } = db.prepare("SELECT COUNT(*) as cnt FROM sessions").get();
+  const autoTitle = `Session ${cnt + 1}`;
   const result = db.prepare(
-    "INSERT INTO sessions (audio_source, target_language, device_name, context) VALUES (?, ?, ?, ?)"
-  ).run(audioSource, targetLanguage, deviceName || null, context || null);
+    "INSERT INTO sessions (title, audio_source, target_language, device_name, context) VALUES (?, ?, ?, ?, ?)"
+  ).run(autoTitle, audioSource, targetLanguage, deviceName || null, context || null);
   return result.lastInsertRowid;
 }
 

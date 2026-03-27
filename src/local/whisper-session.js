@@ -73,6 +73,7 @@ export function createSession({
   ollamaModel = "llama3.2",
   libreTranslateUrl = "http://localhost:5000",
   languageHints = ["en"],
+  context = null,
 } = {}) {
   let _onPartial = null;
   let _onUtterance = null;
@@ -96,6 +97,7 @@ export function createSession({
     ollamaModel,
     libreTranslateUrl,
     targetLanguage,
+    context,
   };
 
   const whisperOptions = {
@@ -106,6 +108,7 @@ export function createSession({
     whisperOptions: {
       language: whisperLanguage === "auto" ? undefined : whisperLanguage,
       translateToEnglish,
+      ...(context ? { initialPrompt: context } : {}),
     },
   };
 

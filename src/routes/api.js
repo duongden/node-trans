@@ -99,7 +99,7 @@ router.get("/local/status", async (req, res) => {
     ];
     const whisperBuilt = binaryPaths.some(existsSync);
 
-    const modelName = settings.whisperModel || "base";
+    const modelName = req.query.whisperModel || settings.whisperModel || "base";
     const modelFiles = {
       "tiny": "ggml-tiny.bin", "tiny.en": "ggml-tiny.en.bin",
       "base": "ggml-base.bin", "base.en": "ggml-base.en.bin",
@@ -123,7 +123,7 @@ router.get("/local/status", async (req, res) => {
         ollamaAvailable = true;
         const data = await r.json();
         const pulled = (data.models || []).map((m) => m.name.toLowerCase());
-        const target = (settings.ollamaModel || "").toLowerCase();
+        const target = (req.query.ollamaModel || settings.ollamaModel || "").toLowerCase();
         ollamaModelReady = pulled.some((n) => n === target || n.startsWith(target + ":") || n === target + ":latest");
       }
     } catch {
