@@ -4,7 +4,7 @@ import { useI18n } from "../../i18n/I18nContext";
 export default function Utterance({ data, speakerColorMap, speakerName }) {
   const { t } = useI18n();
   const idx = getSpeakerIndex(data.speaker, speakerColorMap);
-  const speaker = speakerName || (data.speaker ? `${t("speaker")} ${data.speaker}` : t("speaker"));
+  const speaker = speakerName || (data.speaker ? `${t("speaker")} ${idx + 1}` : t("speaker"));
   const time = new Date(data.timestamp).toLocaleTimeString("en-US");
   const lang = data.originalLanguage || data.original_language;
   const source = data.source;

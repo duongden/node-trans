@@ -4,12 +4,13 @@ import { SocketProvider, useSocket } from "./context/SocketContext";
 import Header from "./components/Header";
 import TabNav from "./components/TabNav";
 import LiveTab from "./components/live/LiveTab";
-import SettingsTab from "./components/settings/SettingsTab";
+import SettingsModal from "./components/settings/SettingsTab";
 import Sidebar from "./components/Sidebar";
 import OverlayWindow from "./components/live/OverlayWindow";
+import ToastContainer from "./components/Toast";
 
 function AppContent() {
-  const [activeTab, setActiveTab] = useState("live");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { state } = useSocket();
 
   return (
@@ -18,16 +19,15 @@ function AppContent() {
         <Sidebar />
         <div className="flex flex-col flex-1 min-w-0">
           <Header />
-          <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
-          <div className={`flex-1 overflow-hidden flex-col ${activeTab === "live" ? "flex" : "hidden"}`}>
+          <TabNav onOpenSettings={() => setSettingsOpen(true)} />
+          <div className="flex-1 overflow-hidden flex flex-col">
             <LiveTab />
-          </div>
-          <div className={`flex-1 overflow-y-auto flex-col ${activeTab === "settings" ? "flex" : "hidden"}`}>
-            <SettingsTab active={activeTab === "settings"} />
           </div>
         </div>
       </div>
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       {state.overlayVisible && !window.electronAPI?.isElectron && <OverlayWindow />}
+      <ToastContainer />
     </>
   );
 }

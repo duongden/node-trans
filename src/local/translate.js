@@ -1,0 +1,57 @@
+const LANG_NAMES = {
+  vi: "Vietnamese", en: "English", ja: "Japanese", ko: "Korean",
+  zh: "Chinese", fr: "French", es: "Spanish", de: "German",
+};
+
+/**
+ * Translate text using a local translation service (Ollama or LibreTranslate).
+ * Returns { translated, lang } — translated is empty string on failure or when disabled.
+ */
+export async function translateText(text, sourceLang, settings) {
+  const { localTranslationEngine, ollamaBaseUrl, ollamaModel, libreTranslateUrl, targetLanguage } = settings;
+
+  if (!text || !localTranslationEngine || localTranslationEngine === "none") {
+    return { translated: "", lang: null };
+  }
+
+  const targetLangName = LANG_NAMES[targetLanguage] || targetLanguage;
+
+  try {
+    if (localTranslationEngine === "ollama") {
+      const res = await fetch(`${ollamaBaseUrl}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: ollamaModel,
+          prompt: `Translate the following text to ${targetLangName}. Reply with only the translation, no explanation:\n\n${text}`,
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
+      const data = await res.json();
+      return { translated: (data.response || "").trim(), lang: targetLanguage };
+    }
+
+    if (localTranslationEngine === "libretranslate") {
+      const res = await fetch(`${libreTranslateUrl}/translate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          q: text,
+          source: sourceLang || "auto",
+          target: targetLanguage,
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) throw new Error(`LibreTranslate HTTP ${res.status}`);
+      const data = await res.json();
+      return { translated: data.translatedText || "", lang: targetLanguage };
+    }
+  } catch (err) {
+    // Translation failure is non-fatal — log and return empty
+    console.warn(`[local/translate] ${localTranslationEngine} error:`, err.message);
+  }
+
+  return { translated: "", lang: null };
+}

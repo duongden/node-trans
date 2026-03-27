@@ -1,6 +1,6 @@
 {
   "name": "node-trans",
-  "version": "1.0.2",
+  "version": "1.1.3",
   "description": "Real-time audio translation app using Soniox API",
   "type": "module",
   "main": "electron/main.js",
@@ -17,7 +17,9 @@
     "electron:build:mac": "npm run build && electron-builder --config electron-builder.config.js --mac",
     "electron:build:win": "npm run build && electron-builder --config electron-builder.config.js --win",
     "postinstall": "electron-builder install-app-deps",
-    "download:ffmpeg": "node scripts/download-ffmpeg.js"
+    "download:ffmpeg": "node scripts/download-ffmpeg.js",
+    "whisper:build": "node scripts/build-whisper.js",
+    "diarize:setup": "node scripts/setup-diarize.js"
   },
   "keywords": [],
   "author": "",
@@ -28,6 +30,7 @@
     "compression": "^1.8.1",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "nodejs-whisper": "^0.2.9",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "socket.io": "^4.8.3",

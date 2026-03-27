@@ -26,7 +26,7 @@ export default {
     "!node_modules/**/.prettier*",
     "!node_modules/**/{.github,.vscode}/**",
   ],
-  asarUnpack: ["**/better-sqlite3/**"],
+  asarUnpack: ["**/better-sqlite3/**", "**/nodejs-whisper/**"],
   extraResources: [
     {
       from: "ffmpeg-bin/${os}",
