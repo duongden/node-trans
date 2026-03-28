@@ -26,7 +26,7 @@ export default {
     "!node_modules/**/.prettier*",
     "!node_modules/**/{.github,.vscode}/**",
   ],
-  asarUnpack: ["**/better-sqlite3/**", "**/nodejs-whisper/**", "src/local/diarize.py"],
+  asarUnpack: ["**/better-sqlite3/**", "**/nodejs-whisper/**", "src/local/*.py"],
   extraResources: [
     {
       from: "ffmpeg-bin/${os}",

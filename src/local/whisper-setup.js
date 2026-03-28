@@ -29,7 +29,35 @@ function venvPython(venvDir) {
   return join(venvDir, isWin ? "Scripts\\python.exe" : "bin/python3");
 }
 
-/** Returns the Python bin that already has openai-whisper, or null. */
+/** Run a command asynchronously, resolve with stdout or reject. */
+function execAsync(cmd, args, timeout = 10_000) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], timeout });
+    let stdout = "";
+    proc.stdout.on("data", (d) => { stdout += d.toString(); });
+    proc.on("close", (code) => {
+      if (code === 0) resolve(stdout.trim());
+      else reject(new Error(`exit ${code}`));
+    });
+    proc.on("error", reject);
+  });
+}
+
+/** Returns the Python bin that already has openai-whisper, or null. (async — non-blocking) */
+async function findExistingWhisperPythonAsync() {
+  for (const venv of [SHARED_VENV, DIARIZE_VENV, WHISPER_VENV]) {
+    const py = venvPython(venv);
+    if (existsSync(py)) {
+      try {
+        await execAsync(py, ["-c", "import whisper"]);
+        return py;
+      } catch {}
+    }
+  }
+  return null;
+}
+
+/** Sync version — used only during setup (where blocking is acceptable). */
 function findExistingWhisperPython() {
   for (const venv of [SHARED_VENV, DIARIZE_VENV, WHISPER_VENV]) {
     const py = venvPython(venv);
@@ -45,16 +73,7 @@ function findExistingWhisperPython() {
 
 function findSystemPython() {
   if (process.env.DIARIZE_PYTHON) return process.env.DIARIZE_PYTHON;
-  const candidates = isWin
-    ? ["py", "python3.12", "python3.11", "python3", "python"]
-    : [
-        "/opt/homebrew/opt/python@3.12/bin/python3.12",
-        "/opt/homebrew/opt/python@3.11/bin/python3.11",
-        "python3.12",
-        "python3.11",
-        "python3",
-      ];
-  for (const bin of candidates) {
+  for (const bin of pythonCandidates()) {
     try {
       const out = execSync(`"${bin}" --version 2>&1`).toString().trim();
       const m = out.match(/Python (\d+)\.(\d+)/);
@@ -64,23 +83,64 @@ function findSystemPython() {
   return isWin ? "py" : "python3";
 }
 
-/** Spawn a command, line-buffering stdout+stderr into onLine. */
+function pythonCandidates() {
+  return isWin
+    ? ["py", "python3.12", "python3.11", "python3", "python"]
+    : [
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/opt/homebrew/opt/python@3.11/bin/python3.11",
+        "python3.12",
+        "python3.11",
+        "python3",
+      ];
+}
+
+/** Check if a compatible Python (3.10+) is available on the system. (async — non-blocking) */
+export async function checkSystemPython() {
+  const candidates = process.env.DIARIZE_PYTHON
+    ? [process.env.DIARIZE_PYTHON, ...pythonCandidates()]
+    : pythonCandidates();
+  for (const bin of candidates) {
+    try {
+      const out = await execAsync(bin, ["--version"], 5_000);
+      const m = out.match(/Python (\d+)\.(\d+)/);
+      if (m && Number(m[1]) === 3 && Number(m[2]) >= 10) {
+        return { found: true, version: out };
+      }
+    } catch {}
+  }
+  return { found: false };
+}
+
+/** Spawn a command, line-buffering stdout+stderr into onLine. Captures last stderr lines for error context. */
 function spawnLines(cmd, args, onLine, env) {
   return new Promise((resolve, reject) => {
     const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], env: env || process.env });
     let buf = "";
-    const feed = (chunk) => {
+    const recentStderr = [];
+    const feed = (chunk, isStderr) => {
       buf += chunk.toString();
       const parts = buf.split("\n");
       buf = parts.pop();
-      for (const l of parts) if (l.trim()) onLine(l);
+      for (const l of parts) {
+        if (l.trim()) {
+          if (isStderr) {
+            recentStderr.push(l);
+            if (recentStderr.length > 20) recentStderr.shift();
+          }
+          onLine(l);
+        }
+      }
     };
-    proc.stdout.on("data", feed);
-    proc.stderr.on("data", feed);
+    proc.stdout.on("data", (c) => feed(c, false));
+    proc.stderr.on("data", (c) => feed(c, true));
     proc.on("close", (code) => {
       if (buf.trim()) onLine(buf);
       if (code === 0) resolve();
-      else reject(new Error(`Exited with code ${code}`));
+      else {
+        const context = recentStderr.length ? `\n--- last stderr ---\n${recentStderr.join("\n")}` : "";
+        reject(new Error(`Exited with code ${code}${context}`));
+      }
     });
     proc.on("error", reject);
   });
@@ -163,19 +223,32 @@ function downloadModel(pythonBin, modelName, onEvent) {
       }
     });
 
-    // stderr is diagnostic, show as log lines
+    // stderr is diagnostic, show as log lines — also capture for error context
     let stderrBuf = "";
+    const recentStderr = [];
     proc.stderr.on("data", (data) => {
       stderrBuf += data.toString("utf8");
       const lines = stderrBuf.split("\n");
       stderrBuf = lines.pop();
-      for (const l of lines) if (l.trim()) onEvent({ line: l });
+      for (const l of lines) {
+        if (l.trim()) {
+          recentStderr.push(l);
+          if (recentStderr.length > 30) recentStderr.shift();
+          onEvent({ line: l });
+        }
+      }
     });
 
     proc.on("close", (code) => {
-      if (stderrBuf.trim()) onEvent({ line: stderrBuf });
+      if (stderrBuf.trim()) {
+        recentStderr.push(stderrBuf);
+        onEvent({ line: stderrBuf });
+      }
       if (code === 0) resolve();
-      else reject(new Error(`Download script exited with code ${code}`));
+      else {
+        const context = recentStderr.length ? `\n--- last stderr ---\n${recentStderr.join("\n")}` : "";
+        reject(new Error(`Download script exited with code ${code}${context}`));
+      }
     });
 
     proc.on("error", reject);
@@ -188,9 +261,14 @@ export async function runWhisperSetup(modelName, onEvent) {
   await downloadModel(pythonBin, modelName, onEvent);
 }
 
-/** Returns the Python binary that has openai-whisper, or null if not set up. */
+/** Returns the Python binary that has openai-whisper, or null if not set up. (sync) */
 export function getWhisperPython() {
   return findExistingWhisperPython();
+}
+
+/** Async version — non-blocking, used by status endpoints. */
+export async function getWhisperPythonAsync() {
+  return findExistingWhisperPythonAsync();
 }
 
 /** Returns true if the model .pt file exists in the whisper cache. */

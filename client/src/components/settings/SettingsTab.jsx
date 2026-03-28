@@ -51,6 +51,7 @@ export default function SettingsModal({ onClose }) {
   const [setupRunning, setSetupRunning] = useState(false);
   const [setupDone, setSetupDone] = useState(false);
   const [setupError, setSetupError] = useState(null);
+  const [setupLogFile, setSetupLogFile] = useState(null);
   const setupLogRef = useRef(null);
 
   const [confirmRemoveModel, setConfirmRemoveModel] = useState(false);
@@ -58,13 +59,13 @@ export default function SettingsModal({ onClose }) {
   const [whisperSetupRunning, setWhisperSetupRunning] = useState(false);
   const [whisperSetupDone, setWhisperSetupDone] = useState(false);
   const [whisperSetupError, setWhisperSetupError] = useState(null);
+  const [whisperSetupLogFile, setWhisperSetupLogFile] = useState(null);
   const [whisperDownloadProgress, setWhisperDownloadProgress] = useState(null);
   const whisperSetupLogRef = useRef(null);
 
+  const engineStatusFetched = useRef(false);
   useEffect(() => {
-    Promise.all([fetchSettings(), fetchDevices()]).then(([settings, devData]) => {
-      setDevices(devData.input || []);
-      setFfmpegAvailable(devData.ffmpegAvailable !== false);
+    fetchSettings().then((settings) => {
       setAudioSource(settings.audioSource || "mic");
       const defaultTarget = settings.targetLanguage || "vi";
       setMicTargetLanguage(settings.micTargetLanguage || defaultTarget);
@@ -82,14 +83,10 @@ export default function SettingsModal({ onClose }) {
       setHfToken(settings.hfToken || "");
       setDefaultContext(settings.defaultContext || "none");
       setDefaultCustomContext(settings.defaultCustomContext || "");
-      if (settings.transcriptionEngine === "local-whisper") {
-        const wm = settings.whisperModel || "base";
-        const om = settings.ollamaModel || "llama3.2";
-        fetchWhisperStatus(wm);
-        fetchOllamaStatus(om);
-        fetchLibreStatus();
-        fetchDiarizeStatus();
-      }
+    }).catch(() => {});
+    fetchDevices().then((devData) => {
+      setDevices(devData.input || []);
+      setFfmpegAvailable(devData.ffmpegAvailable !== false);
     }).catch(() => {});
   }, []);
 
@@ -98,6 +95,17 @@ export default function SettingsModal({ onClose }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // Fetch engine status lazily when Engine tab is opened with local-whisper
+  useEffect(() => {
+    if (activeTab === "engine" && transcriptionEngine === "local-whisper" && !engineStatusFetched.current) {
+      engineStatusFetched.current = true;
+      fetchWhisperStatus();
+      fetchOllamaStatus();
+      fetchLibreStatus();
+      fetchDiarizeStatus();
+    }
+  }, [activeTab, transcriptionEngine]);
 
   useEffect(() => {
     if (setupLogRef.current) setupLogRef.current.scrollTop = setupLogRef.current.scrollHeight;
@@ -145,6 +153,7 @@ export default function SettingsModal({ onClose }) {
     setWhisperSetupRunning(true);
     setWhisperSetupDone(false);
     setWhisperSetupError(null);
+    setWhisperSetupLogFile(null);
     setWhisperDownloadProgress(null);
     const es = new EventSource(`/api/local/whisper-setup?model=${encodeURIComponent(whisperModel)}`);
     es.onmessage = (e) => {
@@ -168,6 +177,7 @@ export default function SettingsModal({ onClose }) {
       } else if (data.error) {
         setWhisperSetupRunning(false);
         setWhisperSetupError(data.error);
+        if (data.logFile) setWhisperSetupLogFile(data.logFile);
         es.close();
       }
     };
@@ -186,6 +196,7 @@ export default function SettingsModal({ onClose }) {
     setSetupRunning(true);
     setSetupDone(false);
     setSetupError(null);
+    setSetupLogFile(null);
     const es = new EventSource("/api/local/diarize-setup");
     es.onmessage = (e) => {
       const data = JSON.parse(e.data);
@@ -199,6 +210,7 @@ export default function SettingsModal({ onClose }) {
       } else if (data.error) {
         setSetupRunning(false);
         setSetupError(data.error);
+        if (data.logFile) setSetupLogFile(data.logFile);
         es.close();
       }
     };
@@ -403,7 +415,8 @@ export default function SettingsModal({ onClose }) {
                       key={opt.value}
                       onClick={() => {
                         setTranscriptionEngine(opt.value);
-                        if (opt.value === "local-whisper") {
+                        if (opt.value === "local-whisper" && !engineStatusFetched.current) {
+                          engineStatusFetched.current = true;
                           fetchWhisperStatus();
                           fetchOllamaStatus();
                           fetchLibreStatus();
@@ -458,11 +471,19 @@ export default function SettingsModal({ onClose }) {
                         <p className="text-xs font-medium text-gray-400 dark:text-gray-500 animate-pulse">⟳ Checking...</p>
                       ) : whisperStatus && (
                         <div className="space-y-0.5">
+                          {whisperStatus.pythonAvailable === false && !whisperStatus.whisperPyReady && (
+                            <div className="flex items-center gap-2 text-xs text-red-400">
+                              <span>✗ {t("pythonNotFound")}</span>
+                              <a href="https://www.python.org/downloads/" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-500 hover:underline transition-colors">
+                                {t("pythonDownloadHint")}
+                              </a>
+                            </div>
+                          )}
                           <div className="flex items-center gap-2">
                             <p className={`text-xs font-medium ${whisperStatus.whisperPyReady ? "text-green-500" : "text-amber-500"}`}>
                               {whisperStatus.whisperPyReady ? "✓ " : "○ "}{t(whisperStatus.whisperPyReady ? "whisperPyReady" : "whisperPyMissing")}
                             </p>
-                            {!whisperStatus.whisperPyReady && !whisperSetupRunning && (
+                            {!whisperStatus.whisperPyReady && !whisperSetupRunning && whisperStatus.pythonAvailable !== false && (
                               <button onClick={startWhisperSetup} className="cursor-pointer text-xs text-indigo-400 hover:text-indigo-500 hover:underline transition-colors">
                                 {t("whisperSetup")}
                               </button>
@@ -518,7 +539,12 @@ export default function SettingsModal({ onClose }) {
                       )}
 
                       {whisperSetupError && (
-                        <p className="text-xs text-red-400">{t("whisperSetupError")}: {whisperSetupError}</p>
+                        <div className="text-xs text-red-400 space-y-0.5">
+                          <p>{t("whisperSetupError")}: {whisperSetupError}</p>
+                          {whisperSetupLogFile && (
+                            <p className="text-gray-400 dark:text-gray-500">Log: {whisperSetupLogFile}</p>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -632,7 +658,12 @@ export default function SettingsModal({ onClose }) {
                         )}
 
                         {setupError && (
-                          <p className="text-xs mt-1.5 text-red-400">{t("diarizeSetupError")}: {setupError}</p>
+                          <div className="text-xs mt-1.5 text-red-400 space-y-0.5">
+                            <p>{t("diarizeSetupError")}: {setupError}</p>
+                            {setupLogFile && (
+                              <p className="text-gray-400 dark:text-gray-500">Log: {setupLogFile}</p>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>

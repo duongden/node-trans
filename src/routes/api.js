@@ -26,11 +26,16 @@ async function lazyExport() {
 
 async function checkWhisperStatus(modelName) {
   try {
-    const { getWhisperPython, isModelDownloaded } = await import("../local/whisper-setup.js");
-    const py = getWhisperPython();
-    return { whisperPyReady: !!py, whisperModelDownloaded: py ? isModelDownloaded(modelName) : false };
+    const { getWhisperPythonAsync, isModelDownloaded, checkSystemPython } = await import("../local/whisper-setup.js");
+    const [py, systemPython] = await Promise.all([getWhisperPythonAsync(), checkSystemPython()]);
+    return {
+      whisperPyReady: !!py,
+      whisperModelDownloaded: py ? isModelDownloaded(modelName) : false,
+      pythonAvailable: systemPython.found,
+      pythonVersion: systemPython.version || null,
+    };
   } catch {
-    return { whisperPyReady: false, whisperModelDownloaded: false };
+    return { whisperPyReady: false, whisperModelDownloaded: false, pythonAvailable: false, pythonVersion: null };
   }
 }
 
@@ -212,8 +217,16 @@ router.get("/local/whisper-setup", async (req, res) => {
 
   try {
     const { runWhisperSetup } = await import("../local/whisper-setup.js");
-    await runWhisperSetup(modelName, (event) => send(event));
-    send({ done: true });
+    const { createSetupLogger } = await import("../local/setup-log.js");
+    const logger = createSetupLogger("whisper-setup", (event) => send(event));
+    try {
+      await runWhisperSetup(modelName, logger.onEvent);
+      logger.close();
+      send({ done: true });
+    } catch (err) {
+      logger.close(err.message);
+      send({ error: err.message, logFile: logger.logPath });
+    }
   } catch (err) {
     send({ error: err.message });
   }
@@ -233,8 +246,16 @@ router.get("/local/diarize-setup", async (req, res) => {
 
   try {
     const { runDiarizeSetup } = await import("../local/diarize-setup.js");
-    await runDiarizeSetup((line) => send({ line }));
-    send({ done: true });
+    const { createSetupLogger } = await import("../local/setup-log.js");
+    const logger = createSetupLogger("diarize-setup", (event) => send(event));
+    try {
+      await runDiarizeSetup((line) => logger.onEvent({ line }));
+      logger.close();
+      send({ done: true });
+    } catch (err) {
+      logger.close(err.message);
+      send({ error: err.message, logFile: logger.logPath });
+    }
   } catch (err) {
     send({ error: err.message });
   }

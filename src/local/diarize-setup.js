@@ -39,18 +39,30 @@ function spawnLines(cmd, args, onLine) {
   return new Promise((resolve, reject) => {
     const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
     let buf = "";
-    const feed = (chunk) => {
+    const recentStderr = [];
+    const feed = (chunk, isStderr) => {
       buf += chunk.toString();
       const parts = buf.split("\n");
       buf = parts.pop();
-      for (const l of parts) if (l.trim()) onLine(l);
+      for (const l of parts) {
+        if (l.trim()) {
+          if (isStderr) {
+            recentStderr.push(l);
+            if (recentStderr.length > 20) recentStderr.shift();
+          }
+          onLine(l);
+        }
+      }
     };
-    proc.stdout.on("data", feed);
-    proc.stderr.on("data", feed);
+    proc.stdout.on("data", (c) => feed(c, false));
+    proc.stderr.on("data", (c) => feed(c, true));
     proc.on("close", (code) => {
       if (buf.trim()) onLine(buf);
       if (code === 0) resolve();
-      else reject(new Error(`Process exited with code ${code}`));
+      else {
+        const context = recentStderr.length ? `\n--- last stderr ---\n${recentStderr.join("\n")}` : "";
+        reject(new Error(`Process exited with code ${code}${context}`));
+      }
     });
     proc.on("error", reject);
   });
