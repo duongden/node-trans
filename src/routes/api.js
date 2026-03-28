@@ -2,7 +2,7 @@ import { Router } from "express";
 import { existsSync } from "fs";
 import { join } from "path";
 import { fileURLToPath } from "url";
-import { execSync } from "child_process";
+import { exec } from "child_process";
 import { loadSettings, saveSettings } from "../storage/settings.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -163,8 +163,12 @@ router.get("/local/status", async (req, res) => {
         "hasattr(np,'NAN') or setattr(np,'NAN',np.nan)",
         "import torch, whisper, pyannote.audio",
       ].join("; ");
-      execSync(`"${pythonBin}" -c "${verifyScript}"`, { timeout: 15000, stdio: "pipe" });
-      diarizePyReady = true;
+      await new Promise((resolve) => {
+        exec(`"${pythonBin}" -c "${verifyScript}"`, { timeout: 15000 }, (err) => {
+          diarizePyReady = !err;
+          resolve();
+        });
+      });
     } catch {
       diarizePyReady = false;
     }

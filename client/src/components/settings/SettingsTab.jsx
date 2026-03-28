@@ -37,6 +37,7 @@ export default function SettingsModal({ onClose }) {
   const [ollamaModel, setOllamaModel] = useState("llama3.2");
   const [hfToken, setHfToken] = useState("");
   const [localStatus, setLocalStatus] = useState(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
   const [defaultContext, setDefaultContext] = useState("none");
   const [defaultCustomContext, setDefaultCustomContext] = useState("");
   const [setupLog, setSetupLog] = useState([]);
@@ -85,7 +86,11 @@ export default function SettingsModal({ onClose }) {
   }, [setupLog]);
 
   const fetchStatus = (wm = whisperModel, om = ollamaModel) => {
-    fetch(`/api/local/status?whisperModel=${wm}&ollamaModel=${om}`).then((r) => r.json()).then(setLocalStatus).catch(() => {});
+    setCheckingStatus(true);
+    fetch(`/api/local/status?whisperModel=${wm}&ollamaModel=${om}`)
+      .then((r) => r.json())
+      .then((data) => { setLocalStatus(data); setCheckingStatus(false); })
+      .catch(() => { setCheckingStatus(false); });
   };
 
   const startSetup = () => {
@@ -356,7 +361,9 @@ export default function SettingsModal({ onClose }) {
                     </select>
                     <p className={hintCls}>{WHISPER_MODEL_OPTIONS.find((o) => o.value === whisperModel)?.[lang] ?? ""}</p>
                   </div>
-                  {localStatus && (() => {
+                  {checkingStatus ? (
+                    <p className="text-xs font-medium text-gray-400 dark:text-gray-500 animate-pulse">⟳ Checking...</p>
+                  ) : localStatus && (() => {
                     const ready = localStatus.whisperBuilt && localStatus.modelPresent;
                     const msg = !localStatus.whisperBuilt ? t("whisperNotBuilt") : !localStatus.modelPresent ? t("whisperModelMissing") : t("whisperReady");
                     return (
@@ -386,16 +393,20 @@ export default function SettingsModal({ onClose }) {
                           <option value="ollama">Ollama</option>
                           <option value="libretranslate">LibreTranslate</option>
                         </select>
-                        {localStatus && localTranslationEngine === "ollama" && (
-                          <p className={`text-xs font-medium mt-1 ${localStatus.ollamaAvailable ? "text-green-500" : "text-amber-500"}`}>
-                            {localStatus.ollamaAvailable ? "✓ " : "○ "}{localStatus.ollamaAvailable ? t("ollamaRunning") : t("ollamaNotRunning")}
-                          </p>
-                        )}
-                        {localStatus && localTranslationEngine === "libretranslate" && (
-                          <p className={`text-xs font-medium mt-1 ${localStatus.libreTranslateAvailable ? "text-green-500" : "text-amber-500"}`}>
-                            {localStatus.libreTranslateAvailable ? "✓ " : "○ "}{localStatus.libreTranslateAvailable ? t("libreTranslateOnline") : t("libreTranslateOffline")}
-                          </p>
-                        )}
+                        {checkingStatus ? (
+                          <p className="text-xs font-medium mt-1 text-gray-400 dark:text-gray-500 animate-pulse">⟳ Checking...</p>
+                        ) : (<>
+                          {localStatus && localTranslationEngine === "ollama" && (
+                            <p className={`text-xs font-medium mt-1 ${localStatus.ollamaAvailable ? "text-green-500" : "text-amber-500"}`}>
+                              {localStatus.ollamaAvailable ? "✓ " : "○ "}{localStatus.ollamaAvailable ? t("ollamaRunning") : t("ollamaNotRunning")}
+                            </p>
+                          )}
+                          {localStatus && localTranslationEngine === "libretranslate" && (
+                            <p className={`text-xs font-medium mt-1 ${localStatus.libreTranslateAvailable ? "text-green-500" : "text-amber-500"}`}>
+                              {localStatus.libreTranslateAvailable ? "✓ " : "○ "}{localStatus.libreTranslateAvailable ? t("libreTranslateOnline") : t("libreTranslateOffline")}
+                            </p>
+                          )}
+                        </>)}
                       </div>
                       {localTranslationEngine === "ollama" && (
                         <div>
@@ -406,7 +417,9 @@ export default function SettingsModal({ onClose }) {
                             ))}
                           </select>
                           <p className={hintCls}>{OLLAMA_MODEL_OPTIONS.find((o) => o.value === ollamaModel)?.[lang] ?? ""}</p>
-                          {localStatus && localStatus.ollamaAvailable && (
+                          {checkingStatus ? (
+                            <p className="text-xs font-medium mt-1 text-gray-400 dark:text-gray-500 animate-pulse">⟳ Checking...</p>
+                          ) : localStatus && localStatus.ollamaAvailable && (
                             <p className={`text-xs font-medium mt-1 ${localStatus.ollamaModelReady ? "text-green-500" : "text-amber-500"}`}>
                               {localStatus.ollamaModelReady ? "✓ " : "○ "}{localStatus.ollamaModelReady ? t("ollamaModelReady") : t("ollamaModelMissing", { model: ollamaModel })}
                             </p>
@@ -443,7 +456,9 @@ export default function SettingsModal({ onClose }) {
                             pyannote/speaker-diarization-3.1
                           </a>
                         </p>
-                        {localStatus && (
+                        {checkingStatus ? (
+                          <p className="text-xs mt-1.5 font-medium text-gray-400 dark:text-gray-500 animate-pulse">⟳ Checking...</p>
+                        ) : localStatus && (
                           <p className={`text-xs mt-1.5 font-medium ${localStatus.diarizePyReady ? "text-green-500" : "text-amber-500"}`}>
                             {localStatus.diarizePyReady ? "✓ " : "○ "}{localStatus.diarizePyReady ? t("diarizePyReady") : t("diarizePyMissing")}
                           </p>
