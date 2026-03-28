@@ -58,9 +58,8 @@ export default function Controls() {
   }, []);
 
   const quickSave = (patch) => {
-    const merged = { ...settingsRef.current, ...patch };
-    settingsRef.current = merged;
-    saveSettings(merged).catch(() => {});
+    Object.assign(settingsRef.current, patch);
+    saveSettings(patch).catch(() => {});
   };
 
   useEffect(() => {

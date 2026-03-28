@@ -55,7 +55,8 @@ export function saveSettings(settings) {
   if (!fs.existsSync(CONFIG_DIR)) {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
   }
-  const merged = { ...DEFAULTS, ...settings };
+  const existing = loadSettings();
+  const merged = { ...existing, ...settings };
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(merged, null, 2));
   return merged;
 }

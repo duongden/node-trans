@@ -1,6 +1,12 @@
 const LANG_NAMES = {
   vi: "Vietnamese", en: "English", ja: "Japanese", ko: "Korean",
   zh: "Chinese", fr: "French", es: "Spanish", de: "German",
+  pt: "Portuguese", ru: "Russian", ar: "Arabic", hi: "Hindi",
+  th: "Thai", id: "Indonesian", ms: "Malay", tl: "Filipino",
+  it: "Italian", nl: "Dutch", pl: "Polish", tr: "Turkish",
+  uk: "Ukrainian", cs: "Czech", sv: "Swedish", da: "Danish",
+  fi: "Finnish", no: "Norwegian", el: "Greek", he: "Hebrew",
+  ro: "Romanian", hu: "Hungarian", bg: "Bulgarian",
 };
 
 /**
