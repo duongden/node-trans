@@ -29,6 +29,13 @@ function ToastItem({ toast }) {
 
   const text = toast.key ? t(toast.key, toast.params) : (toast.message || "");
 
+  useEffect(() => {
+    if (toast.type === "error") {
+      console.error("[Toast Error]", text, toast.params || "");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toast.id]);
+
   return (
     <div
       className={`flex items-start gap-3 px-4 py-3 rounded-xl shadow-lg text-sm max-w-sm w-full pointer-events-auto ${variants[toast.type] ?? variants[""]}`}

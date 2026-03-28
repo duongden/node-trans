@@ -160,7 +160,6 @@ export default function SettingsModal({ onClose }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
     >
       <div
         className="flex flex-col w-full max-w-[580px] max-h-[88vh] rounded-2xl bg-[#f0f2f8] dark:bg-[#0c0d15] border border-gray-200/80 dark:border-indigo-500/15 shadow-2xl shadow-black/40"

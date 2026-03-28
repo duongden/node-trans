@@ -17,7 +17,17 @@ import { translateText } from "./translate.js";
 import { createSession as createWhisperSession } from "./whisper-session.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DIARIZE_PY = join(__dirname, "diarize.py");
+
+// In packaged Electron, __dirname is inside app.asar (virtual filesystem).
+// Python is an external process and cannot read files from ASAR.
+// We resolve the real path via app.asar.unpacked when available.
+function resolveDiarizePy() {
+  const base = join(__dirname, "diarize.py");
+  const unpacked = base.replace(/app\.asar([/\\])/g, "app.asar.unpacked$1");
+  return existsSync(unpacked) ? unpacked : base;
+}
+
+const DIARIZE_PY = resolveDiarizePy();
 
 // How long to wait for Python 'ready' before falling back (covers model download)
 const READY_TIMEOUT_MS = 120_000;
