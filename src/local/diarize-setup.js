@@ -58,7 +58,7 @@ function spawnLines(cmd, args, onLine) {
 
 export async function runDiarizeSetup(onLine) {
   const pythonBin = findPython();
-  const VENV_DIR = join(os.homedir(), ".node-trans", "diarize-venv");
+  const VENV_DIR = join(os.homedir(), ".node-trans", "venv");
   const venvPython = isWin
     ? join(VENV_DIR, "Scripts", "python.exe")
     : join(VENV_DIR, "bin", "python3");

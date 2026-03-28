@@ -4,6 +4,7 @@ import { fetchSettings, fetchDevices, saveSettings } from "../../utils/api";
 import { LANGUAGE_OPTIONS, CONTEXT_PRESETS, WHISPER_MODEL_OPTIONS, OLLAMA_MODEL_OPTIONS } from "../../utils/constants";
 import { useI18n } from "../../i18n/I18nContext";
 import OverlaySettings from "./OverlaySettings";
+import { ConfirmDialog } from "../Modal";
 
 const selectCls = "bg-white/80 dark:bg-white/5 text-gray-700 dark:text-gray-300 border border-gray-200/50 dark:border-indigo-500/10 px-3 py-2 rounded-xl w-full text-sm outline-none transition-all duration-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 hover:border-gray-300 dark:hover:border-indigo-500/20";
 const labelCls = "block text-xs text-gray-400 dark:text-gray-600 mb-1.5 font-medium uppercase tracking-wider";
@@ -36,8 +37,14 @@ export default function SettingsModal({ onClose }) {
   const [localTranslationEngine, setLocalTranslationEngine] = useState("none");
   const [ollamaModel, setOllamaModel] = useState("llama3.2");
   const [hfToken, setHfToken] = useState("");
-  const [localStatus, setLocalStatus] = useState(null);
-  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [whisperStatus, setWhisperStatus] = useState(null);
+  const [checkingWhisper, setCheckingWhisper] = useState(false);
+  const [ollamaStatus, setOllamaStatus] = useState(null);
+  const [checkingOllama, setCheckingOllama] = useState(false);
+  const [libreStatus, setLibreStatus] = useState(null);
+  const [checkingLibre, setCheckingLibre] = useState(false);
+  const [diarizeStatus, setDiarizeStatus] = useState(null);
+  const [checkingDiarize, setCheckingDiarize] = useState(false);
   const [defaultContext, setDefaultContext] = useState("none");
   const [defaultCustomContext, setDefaultCustomContext] = useState("");
   const [setupLog, setSetupLog] = useState([]);
@@ -45,6 +52,14 @@ export default function SettingsModal({ onClose }) {
   const [setupDone, setSetupDone] = useState(false);
   const [setupError, setSetupError] = useState(null);
   const setupLogRef = useRef(null);
+
+  const [confirmRemoveModel, setConfirmRemoveModel] = useState(false);
+  const [whisperSetupLog, setWhisperSetupLog] = useState([]);
+  const [whisperSetupRunning, setWhisperSetupRunning] = useState(false);
+  const [whisperSetupDone, setWhisperSetupDone] = useState(false);
+  const [whisperSetupError, setWhisperSetupError] = useState(null);
+  const [whisperDownloadProgress, setWhisperDownloadProgress] = useState(null);
+  const whisperSetupLogRef = useRef(null);
 
   useEffect(() => {
     Promise.all([fetchSettings(), fetchDevices()]).then(([settings, devData]) => {
@@ -70,7 +85,10 @@ export default function SettingsModal({ onClose }) {
       if (settings.transcriptionEngine === "local-whisper") {
         const wm = settings.whisperModel || "base";
         const om = settings.ollamaModel || "llama3.2";
-        fetch(`/api/local/status?whisperModel=${wm}&ollamaModel=${om}`).then((r) => r.json()).then(setLocalStatus).catch(() => {});
+        fetchWhisperStatus(wm);
+        fetchOllamaStatus(om);
+        fetchLibreStatus();
+        fetchDiarizeStatus();
       }
     }).catch(() => {});
   }, []);
@@ -85,12 +103,81 @@ export default function SettingsModal({ onClose }) {
     if (setupLogRef.current) setupLogRef.current.scrollTop = setupLogRef.current.scrollHeight;
   }, [setupLog]);
 
-  const fetchStatus = (wm = whisperModel, om = ollamaModel) => {
-    setCheckingStatus(true);
-    fetch(`/api/local/status?whisperModel=${wm}&ollamaModel=${om}`)
+  useEffect(() => {
+    if (whisperSetupLogRef.current) whisperSetupLogRef.current.scrollTop = whisperSetupLogRef.current.scrollHeight;
+  }, [whisperSetupLog]);
+
+  const fetchWhisperStatus = (model = whisperModel) => {
+    setCheckingWhisper(true);
+    fetch(`/api/local/status/whisper?model=${encodeURIComponent(model)}`)
       .then((r) => r.json())
-      .then((data) => { setLocalStatus(data); setCheckingStatus(false); })
-      .catch(() => { setCheckingStatus(false); });
+      .then((data) => { setWhisperStatus(data); setCheckingWhisper(false); })
+      .catch(() => setCheckingWhisper(false));
+  };
+
+  const fetchOllamaStatus = (model = ollamaModel) => {
+    setCheckingOllama(true);
+    fetch(`/api/local/status/ollama?model=${encodeURIComponent(model)}`)
+      .then((r) => r.json())
+      .then((data) => { setOllamaStatus(data); setCheckingOllama(false); })
+      .catch(() => setCheckingOllama(false));
+  };
+
+  const fetchLibreStatus = () => {
+    setCheckingLibre(true);
+    fetch("/api/local/status/libretranslate")
+      .then((r) => r.json())
+      .then((data) => { setLibreStatus(data); setCheckingLibre(false); })
+      .catch(() => setCheckingLibre(false));
+  };
+
+  const fetchDiarizeStatus = () => {
+    setCheckingDiarize(true);
+    fetch("/api/local/status/diarize")
+      .then((r) => r.json())
+      .then((data) => { setDiarizeStatus(data); setCheckingDiarize(false); })
+      .catch(() => setCheckingDiarize(false));
+  };
+
+  const startWhisperSetup = () => {
+    if (whisperSetupRunning) return;
+    setWhisperSetupLog([]);
+    setWhisperSetupRunning(true);
+    setWhisperSetupDone(false);
+    setWhisperSetupError(null);
+    setWhisperDownloadProgress(null);
+    const es = new EventSource(`/api/local/whisper-setup?model=${encodeURIComponent(whisperModel)}`);
+    es.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.line !== undefined) {
+        setWhisperSetupLog((prev) => [...prev, data.line]);
+      } else if (data.progress !== undefined) {
+        setWhisperDownloadProgress(data);
+        if (data.done) {
+          setWhisperSetupRunning(false);
+          setWhisperSetupDone(true);
+          setWhisperDownloadProgress({ progress: 100, done: true });
+          es.close();
+          fetchWhisperStatus();
+        }
+      } else if (data.done) {
+        setWhisperSetupRunning(false);
+        setWhisperSetupDone(true);
+        es.close();
+        fetchWhisperStatus();
+      } else if (data.error) {
+        setWhisperSetupRunning(false);
+        setWhisperSetupError(data.error);
+        es.close();
+      }
+    };
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) {
+        setWhisperSetupRunning(false);
+        if (!whisperSetupDone) setWhisperSetupError("Connection lost");
+        es.close();
+      }
+    };
   };
 
   const startSetup = () => {
@@ -108,7 +195,7 @@ export default function SettingsModal({ onClose }) {
         setSetupRunning(false);
         setSetupDone(true);
         es.close();
-        fetchStatus();
+        fetchDiarizeStatus();
       } else if (data.error) {
         setSetupRunning(false);
         setSetupError(data.error);
@@ -163,6 +250,7 @@ export default function SettingsModal({ onClose }) {
   ];
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
     >
@@ -316,7 +404,10 @@ export default function SettingsModal({ onClose }) {
                       onClick={() => {
                         setTranscriptionEngine(opt.value);
                         if (opt.value === "local-whisper") {
-                          fetchStatus();
+                          fetchWhisperStatus();
+                          fetchOllamaStatus();
+                          fetchLibreStatus();
+                          fetchDiarizeStatus();
                         }
                       }}
                       className={`cursor-pointer px-4 py-2 rounded-xl text-sm font-medium border transition-all duration-200 ${
@@ -354,24 +445,83 @@ export default function SettingsModal({ onClose }) {
                 <>
                   <div>
                     <label className={labelCls}>{t("whisperModel")}</label>
-                    <select className={`${selectCls} max-w-xs`} value={whisperModel} onChange={(e) => { setWhisperModel(e.target.value); fetchStatus(e.target.value, ollamaModel); }}>
+                    <select className={`${selectCls} max-w-xs`} value={whisperModel} onChange={(e) => { setWhisperModel(e.target.value); fetchWhisperStatus(e.target.value); setWhisperSetupDone(false); setWhisperDownloadProgress(null); }}>
                       {WHISPER_MODEL_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </select>
                     <p className={hintCls}>{WHISPER_MODEL_OPTIONS.find((o) => o.value === whisperModel)?.[lang] ?? ""}</p>
+
+                    {/* Status + setup inline */}
+                    <div className="mt-2 space-y-2">
+                      {checkingWhisper ? (
+                        <p className="text-xs font-medium text-gray-400 dark:text-gray-500 animate-pulse">⟳ Checking...</p>
+                      ) : whisperStatus && (
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <p className={`text-xs font-medium ${whisperStatus.whisperPyReady ? "text-green-500" : "text-amber-500"}`}>
+                              {whisperStatus.whisperPyReady ? "✓ " : "○ "}{t(whisperStatus.whisperPyReady ? "whisperPyReady" : "whisperPyMissing")}
+                            </p>
+                            {!whisperStatus.whisperPyReady && !whisperSetupRunning && (
+                              <button onClick={startWhisperSetup} className="cursor-pointer text-xs text-indigo-400 hover:text-indigo-500 hover:underline transition-colors">
+                                {t("whisperSetup")}
+                              </button>
+                            )}
+                          </div>
+                          {whisperStatus.whisperPyReady && (
+                            <div className="flex items-center gap-2">
+                              <p className={`text-xs font-medium ${whisperStatus.whisperModelDownloaded ? "text-green-500" : "text-amber-500"}`}>
+                                {whisperStatus.whisperModelDownloaded ? "✓ " : "○ "}{t(whisperStatus.whisperModelDownloaded ? "whisperModelDownloaded" : "whisperModelNotDownloaded")}
+                              </p>
+                              {whisperStatus.whisperModelDownloaded && (
+                                <button onClick={() => setConfirmRemoveModel(true)} className="cursor-pointer text-xs text-red-400 hover:text-red-500 hover:underline transition-colors">
+                                  {t("whisperRemoveModel")}
+                                </button>
+                              )}
+                              {!whisperStatus.whisperModelDownloaded && !whisperSetupRunning && (
+                                <button onClick={startWhisperSetup} className="cursor-pointer text-xs text-indigo-400 hover:text-indigo-500 hover:underline transition-colors">
+                                  {t("whisperSetup")}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {whisperSetupRunning && (
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
+                            {whisperDownloadProgress ? (
+                              <>
+                                <span>{t("whisperDownloadingModel")}…</span>
+                                <span>
+                                  {whisperDownloadProgress.downloaded != null
+                                    ? `${whisperDownloadProgress.downloaded} / ${whisperDownloadProgress.total} MB`
+                                    : `${whisperDownloadProgress.progress}%`}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="animate-pulse">Installing…</span>
+                            )}
+                          </div>
+                          <div className="w-full bg-gray-200/60 dark:bg-white/10 rounded-full h-2 overflow-hidden">
+                            {whisperDownloadProgress ? (
+                              <div
+                                className="h-2 rounded-full bg-linear-to-r from-indigo-500 to-cyan-400 transition-all duration-300"
+                                style={{ width: `${whisperDownloadProgress.progress}%` }}
+                              />
+                            ) : (
+                              <div className="h-2 w-full rounded-full bg-linear-to-r from-indigo-500 to-cyan-400 animate-pulse" />
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {whisperSetupError && (
+                        <p className="text-xs text-red-400">{t("whisperSetupError")}: {whisperSetupError}</p>
+                      )}
+                    </div>
                   </div>
-                  {checkingStatus ? (
-                    <p className="text-xs font-medium text-gray-400 dark:text-gray-500 animate-pulse">⟳ Checking...</p>
-                  ) : localStatus && (() => {
-                    const ready = localStatus.whisperBuilt && localStatus.modelPresent;
-                    const msg = !localStatus.whisperBuilt ? t("whisperNotBuilt") : !localStatus.modelPresent ? t("whisperModelMissing") : t("whisperReady");
-                    return (
-                      <p className={`text-xs font-medium ${ready ? "text-green-500" : "text-amber-500"}`}>
-                        {ready ? "✓ " : "○ "}{msg}
-                      </p>
-                    );
-                  })()}
 
                   <hr className={dividerCls} />
 
@@ -386,24 +536,25 @@ export default function SettingsModal({ onClose }) {
                           value={localTranslationEngine}
                           onChange={(e) => {
                             setLocalTranslationEngine(e.target.value);
-                            fetchStatus();
+                            if (e.target.value === "ollama") fetchOllamaStatus();
+                            else if (e.target.value === "libretranslate") fetchLibreStatus();
                           }}
                         >
                           <option value="none">{t("none")}</option>
                           <option value="ollama">Ollama</option>
                           <option value="libretranslate">LibreTranslate</option>
                         </select>
-                        {checkingStatus ? (
+                        {checkingOllama || checkingLibre ? (
                           <p className="text-xs font-medium mt-1 text-gray-400 dark:text-gray-500 animate-pulse">⟳ Checking...</p>
                         ) : (<>
-                          {localStatus && localTranslationEngine === "ollama" && (
-                            <p className={`text-xs font-medium mt-1 ${localStatus.ollamaAvailable ? "text-green-500" : "text-amber-500"}`}>
-                              {localStatus.ollamaAvailable ? "✓ " : "○ "}{localStatus.ollamaAvailable ? t("ollamaRunning") : t(localStatus.platform === "win32" ? "ollamaNotRunningWin" : "ollamaNotRunning")}
+                          {ollamaStatus && localTranslationEngine === "ollama" && (
+                            <p className={`text-xs font-medium mt-1 ${ollamaStatus.ollamaAvailable ? "text-green-500" : "text-amber-500"}`}>
+                              {ollamaStatus.ollamaAvailable ? "✓ " : "○ "}{ollamaStatus.ollamaAvailable ? t("ollamaRunning") : t(ollamaStatus.platform === "win32" ? "ollamaNotRunningWin" : "ollamaNotRunning")}
                             </p>
                           )}
-                          {localStatus && localTranslationEngine === "libretranslate" && (
-                            <p className={`text-xs font-medium mt-1 ${localStatus.libreTranslateAvailable ? "text-green-500" : "text-amber-500"}`}>
-                              {localStatus.libreTranslateAvailable ? "✓ " : "○ "}{localStatus.libreTranslateAvailable ? t("libreTranslateOnline") : t("libreTranslateOffline")}
+                          {libreStatus && localTranslationEngine === "libretranslate" && (
+                            <p className={`text-xs font-medium mt-1 ${libreStatus.libreTranslateAvailable ? "text-green-500" : "text-amber-500"}`}>
+                              {libreStatus.libreTranslateAvailable ? "✓ " : "○ "}{libreStatus.libreTranslateAvailable ? t("libreTranslateOnline") : t("libreTranslateOffline")}
                             </p>
                           )}
                         </>)}
@@ -411,17 +562,17 @@ export default function SettingsModal({ onClose }) {
                       {localTranslationEngine === "ollama" && (
                         <div>
                           <label className={labelCls}>{t("ollamaModel")}</label>
-                          <select className={`${selectCls} max-w-xs`} value={ollamaModel} onChange={(e) => { setOllamaModel(e.target.value); fetchStatus(whisperModel, e.target.value); }}>
+                          <select className={`${selectCls} max-w-xs`} value={ollamaModel} onChange={(e) => { setOllamaModel(e.target.value); fetchOllamaStatus(e.target.value); }}>
                             {OLLAMA_MODEL_OPTIONS.map((o) => (
                               <option key={o.value} value={o.value}>{o.label}</option>
                             ))}
                           </select>
                           <p className={hintCls}>{OLLAMA_MODEL_OPTIONS.find((o) => o.value === ollamaModel)?.[lang] ?? ""}</p>
-                          {checkingStatus ? (
+                          {checkingOllama ? (
                             <p className="text-xs font-medium mt-1 text-gray-400 dark:text-gray-500 animate-pulse">⟳ Checking...</p>
-                          ) : localStatus && localStatus.ollamaAvailable && (
-                            <p className={`text-xs font-medium mt-1 ${localStatus.ollamaModelReady ? "text-green-500" : "text-amber-500"}`}>
-                              {localStatus.ollamaModelReady ? "✓ " : "○ "}{localStatus.ollamaModelReady ? t("ollamaModelReady") : t("ollamaModelMissing", { model: ollamaModel })}
+                          ) : ollamaStatus && ollamaStatus.ollamaAvailable && (
+                            <p className={`text-xs font-medium mt-1 ${ollamaStatus.ollamaModelReady ? "text-green-500" : "text-amber-500"}`}>
+                              {ollamaStatus.ollamaModelReady ? "✓ " : "○ "}{ollamaStatus.ollamaModelReady ? t("ollamaModelReady") : t("ollamaModelMissing", { model: ollamaModel })}
                             </p>
                           )}
                         </div>
@@ -456,43 +607,34 @@ export default function SettingsModal({ onClose }) {
                             pyannote/speaker-diarization-3.1
                           </a>
                         </p>
-                        {checkingStatus ? (
+                        {checkingDiarize ? (
                           <p className="text-xs mt-1.5 font-medium text-gray-400 dark:text-gray-500 animate-pulse">⟳ Checking...</p>
-                        ) : localStatus && (
-                          <p className={`text-xs mt-1.5 font-medium ${localStatus.diarizePyReady ? "text-green-500" : "text-amber-500"}`}>
-                            {localStatus.diarizePyReady ? "✓ " : "○ "}{localStatus.diarizePyReady ? t("diarizePyReady") : t("diarizePyMissing")}
-                          </p>
+                        ) : diarizeStatus && (
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <p className={`text-xs font-medium ${diarizeStatus.diarizePyReady ? "text-green-500" : "text-amber-500"}`}>
+                              {diarizeStatus.diarizePyReady ? "✓ " : "○ "}{diarizeStatus.diarizePyReady ? t("diarizePyReady") : t("diarizePyMissing")}
+                            </p>
+                            {!diarizeStatus.diarizePyReady && !setupRunning && (
+                              <button onClick={startSetup} className="cursor-pointer text-xs text-indigo-400 hover:text-indigo-500 hover:underline transition-colors">
+                                {t("diarizeSetup")}
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {setupRunning && (
+                          <div className="mt-2 space-y-1">
+                            <p className="text-xs text-gray-400 dark:text-gray-500 animate-pulse">Installing…</p>
+                            <div className="w-full bg-gray-200/60 dark:bg-white/10 rounded-full h-2 overflow-hidden">
+                              <div className="h-2 w-full rounded-full bg-linear-to-r from-indigo-500 to-cyan-400 animate-pulse" />
+                            </div>
+                          </div>
+                        )}
+
+                        {setupError && (
+                          <p className="text-xs mt-1.5 text-red-400">{t("diarizeSetupError")}: {setupError}</p>
                         )}
                       </div>
-
-                      {!localStatus?.diarizePyReady && (
-                        <div className="space-y-2">
-                          <div>
-                            <button
-                              onClick={startSetup}
-                              disabled={setupRunning}
-                              className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all duration-200 ${
-                                setupRunning
-                                  ? "opacity-50 cursor-not-allowed bg-white/40 dark:bg-white/5 border-gray-200/50 dark:border-indigo-500/10 text-gray-500"
-                                  : "cursor-pointer bg-white/60 dark:bg-white/5 border-gray-200/50 dark:border-indigo-500/10 text-gray-600 dark:text-gray-400 hover:border-indigo-400 hover:text-indigo-500"
-                              }`}
-                            >
-                              {setupRunning ? t("diarizeSetupRunning") : t("diarizeSetup")}
-                            </button>
-                            <p className={`${hintCls} mt-1`}>{t("diarizeSetupHint")}</p>
-                          </div>
-                          {(setupLog.length > 0 || setupDone || setupError) && (
-                            <div
-                              ref={setupLogRef}
-                              className="bg-black/20 dark:bg-black/40 rounded-xl p-3 max-h-40 overflow-y-auto font-mono text-xs text-gray-500 dark:text-gray-400 space-y-0.5"
-                            >
-                              {setupLog.map((line, i) => <div key={i}>{line}</div>)}
-                              {setupDone && <div className="text-green-500 font-semibold">{t("diarizeSetupDone")}</div>}
-                              {setupError && <div className="text-red-400">{t("diarizeSetupError")}: {setupError}</div>}
-                            </div>
-                          )}
-                        </div>
-                      )}
                     </div>
                   </div>
                 </>
@@ -553,5 +695,20 @@ export default function SettingsModal({ onClose }) {
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      open={confirmRemoveModel}
+      title={t("whisperRemoveModel")}
+      message={t("whisperRemoveModelConfirm")}
+      confirmColor="red"
+      onConfirm={() => {
+        setConfirmRemoveModel(false);
+        fetch(`/api/local/whisper-model?model=${encodeURIComponent(whisperModel)}`, { method: "DELETE" })
+          .then((r) => r.json())
+          .then(() => fetchWhisperStatus());
+      }}
+      onCancel={() => setConfirmRemoveModel(false)}
+    />
+    </>
   );
 }

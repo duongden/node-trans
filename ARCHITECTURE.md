@@ -25,10 +25,12 @@ Audio device (mic / system audio)
   soniox/session.js                       whisper-session.js / diarize-session.js
         │                                             │
         ▼                                             ▼
-  Soniox Cloud API                   whisper.cpp (via nodejs-whisper)
-  · Real-time transcription          · 3s buffer, silence detection
-  · Cloud translation                · Outputs text + timestamps
-  · Speaker diarization (cloud)      · Translation via Ollama / LibreTranslate (if enabled)
+  Soniox Cloud API                   whisper-worker.py (Python subprocess)
+  · Real-time transcription          · openai-whisper (CPU)
+  · Cloud translation                · 6s sliding window, 4s stride
+  · Speaker diarization (cloud)      · Silence detection → early flush
+                                     · Outputs partial + utterance events
+                                     · Translation via Ollama / LibreTranslate (if enabled)
         │                                             │
         │                              ┌──────────────┴──────────────┐
         │                              ▼                             ▼
@@ -71,8 +73,12 @@ Audio device (mic / system audio)
 | `audio/capture.js` | Spawns FFmpeg, normalizes PCM into 120ms chunks, supports pause/resume |
 | `audio/devices.js` | Lists audio devices by parsing ffmpeg output |
 | `soniox/session.js` | Soniox SDK wrapper. Real-time transcription + translation + diarization via cloud |
-| `local/whisper-session.js` | Offline STT. 3s buffer, silence detection, calls whisper.cpp |
+| `local/whisper-session.js` | Offline STT. Spawns `whisper-worker.py` as a persistent subprocess; 6s sliding window with silence detection |
+| `local/whisper-setup.js` | Setup helper: creates `~/.node-trans/venv`, installs `openai-whisper`, downloads model via `whisper-download.py` |
+| `local/whisper-worker.py` | Persistent Python STT worker. Loads openai-whisper model once, processes audio via sliding window, emits `partial`/`utterance` JSON |
+| `local/whisper-download.py` | Downloads a Whisper model to `~/.cache/whisper/` with JSON progress reporting (SHA-256 verified) |
 | `local/diarize-session.js` | Python subprocess wrapper. Sends audio via stdin, receives utterances via stdout. Falls back to whisper-session on failure |
+| `local/diarize-setup.js` | Setup helper: creates shared `~/.node-trans/venv`, installs torch + openai-whisper + pyannote.audio |
 | `local/diarize.py` | Python worker: pyannote + openai-whisper. Receives base64 PCM, returns JSON utterances with speaker labels |
 | `local/translate.js` | Calls Ollama or LibreTranslate. Non-fatal: returns empty string on error |
 | `storage/history.js` | SQLite (better-sqlite3). CRUD for sessions, utterances, speaker aliases |
@@ -116,24 +122,46 @@ Cons: requires API key and internet connection.
 ### Local Whisper (Offline)
 
 ```
-Audio chunks → 3s buffer → whisper.cpp (C++ binary)
-                                  · Transcription
-                                  · Timestamps
+Audio chunks → whisper-worker.py (Python subprocess, model loaded once)
+                    · openai-whisper running on CPU
+                    · 6s sliding window, 4s stride (2s overlap for context)
+                    · Silence detection → early flush at 1.5s
+                    · Emits: partial (in-progress), utterance (committed)
                 [if HF token set]
-                → diarize.py (Python subprocess)
+                → diarize.py (Python subprocess) — replaces whisper-worker.py
                       · pyannote: who is speaking?
                       · openai-whisper: what are they saying?
+                      · 10s window, 5s stride
                       · Combined → utterance + speaker label
 ```
 
 Pros: fully offline, free.
-Cons: requires building whisper.cpp; diarization requires Python setup.
+Cons: requires Python 3.10–3.12 and initial setup (via UI or `npm run setup:diarize`).
 
 ---
 
-## Node.js ↔ Python Protocol (Diarization)
+## Node.js ↔ Python Protocol
 
-Newline-delimited JSON over stdin/stdout:
+Newline-delimited JSON over stdin/stdout. Both workers share the same inbound message format.
+
+### whisper-worker.py (Local Whisper, no diarization)
+
+```
+Node → Python:
+  {"type": "audio",    "data": "<base64 PCM s16le 16kHz mono>"}
+  {"type": "flush"}
+  {"type": "shutdown"}
+
+Python → Node:
+  {"type": "ready"}
+  {"type": "partial",   "text": "..."}   -- growing in-progress text
+  {"type": "utterance", "text": "..."}   -- final committed utterance
+  {"type": "error",     "message": "..."}
+```
+
+Waits up to 60s for `ready` (model load). Model is loaded once per session.
+
+### diarize.py (Diarization with speaker labels)
 
 ```
 Node → Python:
@@ -147,7 +175,7 @@ Python → Node:
   {"type": "error",    "message": "..."}
 ```
 
-The Python worker starts once per session (avoids reloading models). Waits up to 120s for `ready`. If it times out or crashes, automatically falls back to whisper-session (speaker: null).
+Waits up to 120s for `ready` (covers model download on first run). If it times out or crashes, automatically falls back to whisper-session (speaker: null).
 
 ---
 
@@ -170,7 +198,7 @@ speaker_aliases -- session_id, speaker ("SPEAKER_00"), alias (user-defined name)
 |------|----------|
 | `settings.json` | `~/.node-trans/settings.json` (web) / `userData/data/settings.json` (Electron) |
 | `history.db` | `~/.node-trans/history.db` (web) / `userData/data/history.db` (Electron) |
-| `diarize-venv` | `~/.node-trans/diarize-venv/` (Python virtual environment) |
+| `venv` | `~/.node-trans/venv/` (shared Python venv: openai-whisper + pyannote.audio) |
 
 Key settings:
 
@@ -226,8 +254,8 @@ stopSession: stop FFmpeg, stop STT, DB.endSession()
 |-----------|----------|-------|
 | Node.js >= 20 | ✅ | Runtime |
 | ffmpeg | ✅ | Audio capture |
-| whisper.cpp | Only for Local Whisper | `npm run setup:whisper` |
-| Python 3.10–3.12 | Only for Diarization | `npm run setup:diarize` |
+| Python 3.10–3.12 + openai-whisper | Only for Local Whisper | Setup via UI (Settings → Engine → Setup Whisper) |
+| pyannote.audio | Only for Diarization | Setup via UI or `npm run setup:diarize` |
 | Ollama | Only for Ollama translation | `ollama serve` must be running |
 | LibreTranslate | Only for LibreTranslate | Server must be running |
 | BlackHole (macOS) | Only for system audio capture | Or configure device manually |

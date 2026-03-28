@@ -1,143 +1,44 @@
 /**
  * Local Whisper STT session — same interface as src/soniox/session.js.
  *
- * Audio is buffered in 3-second windows. Each window is written to a temp WAV
- * file, processed by whisper.cpp via whisper-cli spawn, then the text is emitted
- * as a partial-result. After SILENCE_THRESHOLD consecutive silent windows the
- * accumulated text is emitted as a final utterance and the buffer resets.
+ * Spawns whisper-worker.py as a persistent subprocess (model loaded once),
+ * then streams audio chunks via stdin. Results arrive as newline-delimited
+ * JSON on stdout: "partial" for live text, "utterance" for final commits.
+ *
+ * Requires Python with openai-whisper installed. The diarize-venv at
+ * ~/.node-trans/diarize-venv already satisfies this if diarize setup was run.
  */
 
-import { writeFileSync, existsSync } from "fs";
-import { join, dirname } from "path";
-import { tmpdir } from "os";
-import { randomUUID } from "crypto";
 import { spawn } from "child_process";
+import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { existsSync } from "fs";
+import os from "os";
 import { translateText } from "./translate.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SAMPLE_RATE = 16000;
-const BYTES_PER_SAMPLE = 2; // s16le
-const SEGMENT_MS = 3000;
-const SEGMENT_BYTES = (SAMPLE_RATE * BYTES_PER_SAMPLE * SEGMENT_MS) / 1000; // 96,000 bytes
-const SILENCE_THRESHOLD = 3; // consecutive silent/empty windows → flush utterance
-const MIN_FLUSH_BYTES = SAMPLE_RATE * BYTES_PER_SAMPLE * 0.5; // 0.5s minimum
+// Wait up to 60 s for the model to load before giving up
+const READY_TIMEOUT_MS = 60_000;
 
-const MODEL_FILES = {
-  "tiny":           "ggml-tiny.bin",
-  "tiny.en":        "ggml-tiny.en.bin",
-  "base":           "ggml-base.bin",
-  "base.en":        "ggml-base.en.bin",
-  "small":          "ggml-small.bin",
-  "small.en":       "ggml-small.en.bin",
-  "medium":         "ggml-medium.bin",
-  "medium.en":      "ggml-medium.en.bin",
-  "large-v1":       "ggml-large-v1.bin",
-  "large":          "ggml-large.bin",
-  "large-v3-turbo": "ggml-large-v3-turbo.bin",
-};
+function getPythonBin() {
+  if (process.env.DIARIZE_PYTHON) return process.env.DIARIZE_PYTHON;
+  const isWin = process.platform === "win32";
+  // Reuse the diarize-venv which already has openai-whisper installed
+  const venvPython = join(
+    os.homedir(), ".node-trans", "diarize-venv",
+    isWin ? "Scripts\\python.exe" : "bin/python3"
+  );
+  if (existsSync(venvPython)) return venvPython;
+  return isWin ? "py" : "python3";
+}
 
-// Resolve the whisper.cpp directory.
-// When packaged in Electron, __dirname is inside app.asar (a virtual archive
-// that cannot be cd'd into or executed from). Binary files are placed in
-// app.asar.unpacked by the asarUnpack config. We detect and correct the path.
-function resolveWhisperCppPath() {
-  const base = join(__dirname, "../../node_modules/nodejs-whisper/cpp/whisper.cpp");
+function resolveWorkerScript() {
+  // When packaged in Electron, source files live inside app.asar (virtual FS).
+  // Python cannot read from ASAR — use the unpacked path when available.
+  const base = join(__dirname, "whisper-worker.py");
   const unpacked = base.replace(/app\.asar([/\\])/g, "app.asar.unpacked$1");
-  // Prefer the unpacked path if it exists on disk (packaged Electron case)
-  return existsSync(join(unpacked, "models")) ? unpacked
-    : existsSync(join(base, "models")) ? base
-    : unpacked; // fallback — let the later existsSync on the binary catch the error
-}
-
-function findBinary(whisperCppPath) {
-  const name = process.platform === "win32" ? "whisper-cli.exe" : "whisper-cli";
-  const candidates = [
-    join(whisperCppPath, "build", "bin", name),
-    join(whisperCppPath, "build", "bin", "Release", name),
-    join(whisperCppPath, "build", "bin", "Debug", name),
-    join(whisperCppPath, "build", name),
-    join(whisperCppPath, name),
-  ];
-  return candidates.find((p) => existsSync(p)) || null;
-}
-
-// Invoke whisper-cli directly via spawn, avoiding nodejs-whisper's internal
-// path resolution which breaks under Electron ASAR packaging.
-function runWhisperCli(wavPath, whisperCppPath, binaryPath, { language, translateToEnglish, initialPrompt, modelName }) {
-  return new Promise((resolve, reject) => {
-    const modelFile = MODEL_FILES[modelName];
-    if (!modelFile) return reject(new Error(`Unknown model: ${modelName}`));
-
-    const modelPath = join(whisperCppPath, "models", modelFile);
-    if (!existsSync(modelPath)) {
-      return reject(new Error(
-        `Model file not found: ${modelPath}\n` +
-        `Download it with: cd node_modules/nodejs-whisper/cpp/whisper.cpp && bash models/download-ggml-model.sh ${modelName}`
-      ));
-    }
-
-    const args = ["-m", modelPath, "-f", wavPath];
-    if (language && language !== "auto") args.push("-l", language);
-    if (translateToEnglish) args.push("-tr");
-    if (initialPrompt) args.push("--prompt", initialPrompt);
-
-    let stdout = "";
-    let stderr = "";
-    const proc = spawn(binaryPath, args, { cwd: whisperCppPath });
-    proc.stdout.on("data", (d) => { stdout += d; });
-    proc.stderr.on("data", (d) => { stderr += d; });
-    proc.on("close", (code) => {
-      if (code === 0) resolve(stdout);
-      else reject(new Error(stderr || `whisper-cli exited with code ${code}`));
-    });
-    proc.on("error", reject);
-  });
-}
-
-// Build a valid RIFF/WAV header around raw PCM s16le 16kHz mono data.
-function writePcmWav(pcmData) {
-  const wavPath = join(tmpdir(), `node-trans-${randomUUID()}.wav`);
-  const dataSize = pcmData.length;
-  const header = Buffer.alloc(44);
-  header.write("RIFF", 0);
-  header.writeUInt32LE(dataSize + 36, 4);
-  header.write("WAVE", 8);
-  header.write("fmt ", 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);                        // PCM
-  header.writeUInt16LE(1, 22);                        // mono
-  header.writeUInt32LE(SAMPLE_RATE, 24);
-  header.writeUInt32LE(SAMPLE_RATE * BYTES_PER_SAMPLE, 28);
-  header.writeUInt16LE(BYTES_PER_SAMPLE, 32);
-  header.writeUInt16LE(16, 34);
-  header.write("data", 36);
-  header.writeUInt32LE(dataSize, 40);
-  writeFileSync(wavPath, Buffer.concat([header, pcmData]));
-  return wavPath;
-}
-
-// Energy-based silence detection — avoids running Whisper on quiet segments.
-function isProbablySilence(pcmData) {
-  if (pcmData.length < BYTES_PER_SAMPLE) return true;
-  let sumSq = 0;
-  const samples = pcmData.length >> 1;
-  for (let i = 0; i < samples; i++) {
-    const s = pcmData.readInt16LE(i * 2);
-    sumSq += s * s;
-  }
-  return Math.sqrt(sumSq / samples) < 300;
-}
-
-// Strip "[HH:MM:SS.mmm --> HH:MM:SS.mmm]" timestamps from whisper-cli stdout.
-function parseTranscript(stdout) {
-  return (stdout || "")
-    .split("\n")
-    .map((line) => line.replace(/^\[[\d:.]+\s*-->\s*[\d:.]+\]\s*/, "").trim())
-    .filter((line) => line && !line.startsWith("["))
-    .join(" ")
-    .trim();
+  return existsSync(unpacked) ? unpacked : base;
 }
 
 export function createSession({
@@ -155,12 +56,10 @@ export function createSession({
   let _onUtterance = null;
   let _onError = null;
 
-  let pcmBuffer = Buffer.alloc(0);
-  let utteranceAccum = "";
-  let emptySegmentCount = 0;
-  let inferenceRunning = false;
+  let pyProcess = null;
+  let stdoutBuf = "";
   let stopped = false;
-  let intervalId = null;
+  let ready = false;
 
   const translateToEnglish = targetLanguage === "en";
   const detectedLang = whisperLanguage === "auto"
@@ -168,135 +67,145 @@ export function createSession({
     : whisperLanguage;
 
   const translationSettings = {
-    localTranslationEngine,
-    ollamaBaseUrl,
-    ollamaModel,
-    libreTranslateUrl,
-    targetLanguage,
-    context,
+    localTranslationEngine, ollamaBaseUrl, ollamaModel,
+    libreTranslateUrl, targetLanguage, context,
   };
 
   async function getTranslation(text) {
-    if (translateToEnglish) {
-      // Whisper already translated; no external call needed
-      return { translated: text, lang: "en" };
-    }
+    if (translateToEnglish) return { translated: text, lang: "en" };
     return translateText(text, detectedLang, translationSettings);
   }
 
-  async function emitUtterance(text) {
-    const { translated, lang } = await getTranslation(text);
-    if (_onUtterance) {
-      _onUtterance({
-        originalText: text,
-        translatedText: translated,
-        originalLanguage: detectedLang,
-        translationLanguage: lang || null,
-        speaker: null,
-        timestamp: new Date().toISOString(),
-      });
-    }
-  }
-
-  async function maybeFlushUtterance() {
-    if (emptySegmentCount >= SILENCE_THRESHOLD && utteranceAccum) {
-      const text = utteranceAccum;
-      utteranceAccum = "";
-      emptySegmentCount = 0;
-      await emitUtterance(text);
-    }
-  }
-
-  async function runInference(pcmChunk) {
-    if (inferenceRunning || stopped) return;
-    if (isProbablySilence(pcmChunk)) {
-      emptySegmentCount++;
-      await maybeFlushUtterance();
-      return;
-    }
-
-    inferenceRunning = true;
-    let wavPath = null;
+  function sendToPython(obj) {
+    if (!pyProcess || stopped) return;
     try {
-      wavPath = writePcmWav(pcmChunk);
-
-      const whisperCppPath = resolveWhisperCppPath();
-      const binaryPath = findBinary(whisperCppPath);
-      if (!binaryPath) {
-        throw new Error("whisper-cli binary not found. Run: npm run whisper:build");
-      }
-
-      const stdout = await runWhisperCli(wavPath, whisperCppPath, binaryPath, {
-        language: whisperLanguage === "auto" ? undefined : whisperLanguage,
-        translateToEnglish,
-        initialPrompt: context,
-        modelName: whisperModel,
-      });
-
-      const text = parseTranscript(stdout);
-
-      if (text) {
-        emptySegmentCount = 0;
-        const { translated } = await getTranslation(text);
-        if (_onPartial) {
-          _onPartial({ originalText: text, translatedText: translated, speaker: null });
-        }
-        utteranceAccum = utteranceAccum ? `${utteranceAccum} ${text}` : text;
-      } else {
-        emptySegmentCount++;
-        await maybeFlushUtterance();
-      }
+      pyProcess.stdin.write(JSON.stringify(obj) + "\n");
     } catch (err) {
-      if (_onError) _onError(err);
-    } finally {
-      inferenceRunning = false;
+      console.error("[whisper-session] stdin write failed:", err.message);
+    }
+  }
+
+  async function handleLine(line) {
+    if (!line.trim()) return;
+    let msg;
+    try { msg = JSON.parse(line); } catch { return; }
+
+    switch (msg.type) {
+      case "ready":
+        ready = true;
+        break;
+
+      case "partial": {
+        const { translated } = await getTranslation(msg.text).catch(() => ({ translated: "" }));
+        _onPartial?.({ originalText: msg.text, translatedText: translated, speaker: null });
+        break;
+      }
+
+      case "utterance": {
+        const { translated, lang } = await getTranslation(msg.text)
+          .catch(() => ({ translated: "", lang: null }));
+        _onUtterance?.({
+          originalText: msg.text,
+          translatedText: translated,
+          originalLanguage: detectedLang,
+          translationLanguage: lang || null,
+          speaker: null,
+          timestamp: new Date().toISOString(),
+        });
+        break;
+      }
+
+      case "error":
+        _onError?.(new Error(msg.message));
+        break;
     }
   }
 
   return {
     async connect() {
-      // No persistent connection needed for local inference
+      const pythonBin = getPythonBin();
+      const workerScript = resolveWorkerScript();
+
+      const args = [workerScript, "--model", whisperModel];
+      if (whisperLanguage !== "auto") args.push("--language", whisperLanguage);
+      if (translateToEnglish) args.push("--translate");
+
+      try {
+        pyProcess = spawn(pythonBin, args, {
+          stdio: ["pipe", "pipe", "pipe"],
+          env: { ...process.env, TOKENIZERS_PARALLELISM: "false" },
+        });
+      } catch (err) {
+        throw new Error(
+          `Failed to spawn whisper-worker. Ensure openai-whisper is installed ` +
+          `(run the Diarization setup, or: pip install openai-whisper). ` +
+          `Detail: ${err.message}`
+        );
+      }
+
+      pyProcess.stderr.on("data", (d) => process.stderr.write(d));
+
+      pyProcess.stdout.on("data", (data) => {
+        stdoutBuf += data.toString("utf8");
+        const lines = stdoutBuf.split("\n");
+        stdoutBuf = lines.pop();
+        for (const line of lines) handleLine(line).catch(() => {});
+      });
+
+      pyProcess.on("error", (err) => {
+        _onError?.(new Error(`whisper-worker process error: ${err.message}`));
+      });
+
+      pyProcess.on("exit", (code, signal) => {
+        if (!stopped) {
+          _onError?.(new Error(`whisper-worker exited unexpectedly (code=${code} signal=${signal})`));
+        }
+      });
+
+      // Wait for 'ready' (model loaded) before returning
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(
+          () => reject(new Error("Timed out waiting for whisper-worker to load model")),
+          READY_TIMEOUT_MS
+        );
+        const poll = setInterval(() => {
+          if (ready) {
+            clearInterval(poll);
+            clearTimeout(timeout);
+            resolve();
+          }
+        }, 100);
+      });
     },
 
     async startStreaming() {
-      intervalId = setInterval(async () => {
-        if (stopped || inferenceRunning) return;
-        if (pcmBuffer.length >= SEGMENT_BYTES / 2) {
-          const chunk = pcmBuffer;
-          pcmBuffer = Buffer.alloc(0);
-          await runInference(chunk);
-        }
-      }, SEGMENT_MS);
+      // Worker is already in its stdin loop after load() — nothing to do here.
     },
 
     sendAudio(chunk) {
-      if (!stopped) {
-        pcmBuffer = Buffer.concat([pcmBuffer, chunk]);
+      if (!stopped && ready) {
+        sendToPython({ type: "audio", data: chunk.toString("base64") });
       }
     },
 
     async stop() {
+      if (stopped) return;
       stopped = true;
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
-      // Flush remaining buffer
-      if (pcmBuffer.length >= MIN_FLUSH_BYTES) {
-        const remaining = pcmBuffer;
-        pcmBuffer = Buffer.alloc(0);
-        await runInference(remaining);
-      }
-      // Force-emit any accumulated text as final utterance
-      if (utteranceAccum) {
-        const text = utteranceAccum;
-        utteranceAccum = "";
-        await emitUtterance(text);
-      }
+      if (!pyProcess) return;
+
+      sendToPython({ type: "shutdown" });
+
+      await new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          try { pyProcess.kill("SIGTERM"); } catch {}
+          resolve();
+        }, 10_000);
+        pyProcess.on("exit", () => { clearTimeout(timeout); resolve(); });
+      });
     },
 
-    onPartial(callback) { _onPartial = callback; },
-    onUtterance(callback) { _onUtterance = callback; },
-    onError(callback) { _onError = callback; },
+    onPartial(cb) { _onPartial = cb; },
+    onUtterance(cb) { _onUtterance = cb; },
+    onError(cb) { _onError = cb; },
   };
 }

@@ -4,8 +4,7 @@
 
 - **Node.js** >= 20 LTS (uses built-in `fetch` and `node --watch`; Node 22 recommended)
 - **ffmpeg**: web mode uses `ffmpeg-static` automatically; Electron bundles its own binary
-- **cmake** + **Visual Studio Build Tools** (Windows) or **Xcode CLI Tools** (macOS): required only if building whisper-cli from source
-- **Python 3.10–3.12**: required only for speaker diarization feature
+- **Python 3.10–3.12**: required for Local Whisper STT and speaker diarization
 
 ---
 
@@ -57,10 +56,11 @@ These only need to be run once:
 | Command | When needed |
 |---------|-------------|
 | `npm run setup:ffmpeg` | Before building Electron for the first time (copies ffmpeg into `ffmpeg-bin/`) |
-| `npm run setup:whisper` | To pre-build `whisper-cli` (optional — auto-builds on first use if skipped) |
-| `npm run setup:diarize` | To enable speaker diarization (installs Python venv + pyannote.audio) |
+| `npm run setup:diarize` | To enable speaker diarization (installs Python venv + pyannote.audio into `~/.node-trans/venv`) |
 
-> **Note**: `setup:diarize` can also be triggered from the UI: Settings → Engine → "Setup Diarization"
+> **Note**: Both Whisper and Diarization setup can be triggered from the UI: Settings → Engine.
+> - **Setup Whisper**: installs `openai-whisper` into `~/.node-trans/venv` and downloads the selected model
+> - **Setup Diarization**: installs `pyannote.audio` into the same shared venv (also runs `setup:whisper` steps)
 
 ---
 
@@ -113,9 +113,14 @@ npm run native:node   # Restore the Node.js-compatible version
 ```
 electron-builder.config.js
   npmRebuild: false        — IMPORTANT: keep false to prevent overwriting the correctly rebuilt binary
-  asarUnpack               — Keeps native modules and diarize.py on the real filesystem (outside ASAR)
+  asarUnpack               — Keeps native modules and Python scripts on the real filesystem (outside ASAR)
 
 electron/main.js           — Sets FFMPEG_PATH and adds it to PATH before importing the server
 src/server.js              — Sets FFMPEG_PATH from ffmpeg-static (web mode) and adds it to PATH
-src/local/diarize-session.js — Resolves diarize.py path, handles ASAR path in packaged Electron
+src/local/whisper-session.js  — Spawns whisper-worker.py; resolves ASAR-unpacked path for Electron
+src/local/whisper-setup.js    — Creates ~/.node-trans/venv, installs openai-whisper, downloads model
+src/local/whisper-worker.py   — Persistent Python STT worker (openai-whisper, sliding window)
+src/local/whisper-download.py — Downloads Whisper model with JSON progress reporting
+src/local/diarize-session.js  — Spawns diarize.py; resolves ASAR-unpacked path for Electron
+src/local/diarize-setup.js    — Creates shared ~/.node-trans/venv, installs pyannote.audio + deps
 ```

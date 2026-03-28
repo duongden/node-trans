@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { existsSync } from "fs";
+import { existsSync, unlinkSync } from "fs";
 import { join } from "path";
 import { fileURLToPath } from "url";
 import { exec } from "child_process";
@@ -21,6 +21,79 @@ async function lazyExport() {
   if (!_export) _export = await import("../storage/export.js");
   return _export;
 }
+
+// ── Status check helpers (each runs independently) ──────────────────────────
+
+async function checkWhisperStatus(modelName) {
+  try {
+    const { getWhisperPython, isModelDownloaded } = await import("../local/whisper-setup.js");
+    const py = getWhisperPython();
+    return { whisperPyReady: !!py, whisperModelDownloaded: py ? isModelDownloaded(modelName) : false };
+  } catch {
+    return { whisperPyReady: false, whisperModelDownloaded: false };
+  }
+}
+
+async function checkOllamaStatus(baseUrl, targetModel) {
+  let ollamaAvailable = false;
+  let ollamaModelReady = false;
+  try {
+    const r = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(2000) });
+    if (r.ok) {
+      ollamaAvailable = true;
+      const data = await r.json();
+      const pulled = (data.models || []).map((m) => m.name.toLowerCase());
+      const t = (targetModel || "").toLowerCase();
+      ollamaModelReady = pulled.some((n) => n === t || n.startsWith(t + ":") || n === t + ":latest");
+    }
+  } catch {}
+  return { ollamaAvailable, ollamaModelReady, platform: process.platform };
+}
+
+async function checkLibreTranslateStatus(url) {
+  if (!url) return { libreTranslateAvailable: false };
+  try {
+    const r = await fetch(`${url}/languages`, { signal: AbortSignal.timeout(2000) });
+    return { libreTranslateAvailable: r.ok };
+  } catch {
+    return { libreTranslateAvailable: false };
+  }
+}
+
+async function checkDiarizeStatus() {
+  let diarizePyReady = false;
+  try {
+    let pythonBin = process.env.DIARIZE_PYTHON;
+    if (!pythonBin) {
+      const { default: os } = await import("os");
+      const isWin = process.platform === "win32";
+      const pyBin = isWin ? "Scripts\\python.exe" : "bin/python3";
+      for (const venvName of ["venv", "diarize-venv"]) {
+        const p = join(os.homedir(), ".node-trans", venvName, pyBin);
+        if (existsSync(p)) { pythonBin = p; break; }
+      }
+      if (!pythonBin) pythonBin = isWin ? "py" : "python3";
+    }
+    const verifyScript = [
+      "import torchaudio",
+      "hasattr(torchaudio,'set_audio_backend') or setattr(torchaudio,'set_audio_backend',lambda *a,**kw:None)",
+      "hasattr(torchaudio,'get_audio_backend') or setattr(torchaudio,'get_audio_backend',lambda:'soundfile')",
+      "import numpy as np",
+      "hasattr(np,'NaN') or setattr(np,'NaN',np.nan)",
+      "hasattr(np,'NAN') or setattr(np,'NAN',np.nan)",
+      "import torch, whisper, pyannote.audio",
+    ].join("; ");
+    await new Promise((resolve) => {
+      exec(`"${pythonBin}" -c "${verifyScript}"`, { timeout: 15000 }, (err) => {
+        diarizePyReady = !err;
+        resolve();
+      });
+    });
+  } catch {}
+  return { diarizePyReady };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const router = Router();
 
@@ -85,98 +158,66 @@ router.put("/settings/overlay", (req, res) => {
   res.json(updated.overlay);
 });
 
-// Local Whisper status
-router.get("/local/status", async (req, res) => {
+// Focused status endpoints — each checks only one concern
+
+router.get("/local/status/whisper", async (req, res) => {
+  const settings = loadSettings();
+  const model = req.query.model || settings.whisperModel || "base";
+  res.json(await checkWhisperStatus(model));
+});
+
+router.get("/local/status/ollama", async (req, res) => {
+  const settings = loadSettings();
+  const baseUrl = settings.ollamaBaseUrl || "http://localhost:11434";
+  const model = req.query.model || settings.ollamaModel || "";
+  res.json(await checkOllamaStatus(baseUrl, model));
+});
+
+router.get("/local/status/libretranslate", async (req, res) => {
+  const settings = loadSettings();
+  res.json(await checkLibreTranslateStatus(settings.libreTranslateUrl));
+});
+
+router.get("/local/status/diarize", async (req, res) => {
+  res.json(await checkDiarizeStatus());
+});
+
+// Whisper model removal
+router.delete("/local/whisper-model", async (req, res) => {
+  const settings = loadSettings();
+  const model = req.query.model || settings.whisperModel || "base";
+  const { default: os } = await import("os");
+  const modelPath = join(os.homedir(), ".cache", "whisper", `${model}.pt`);
+  if (!existsSync(modelPath)) return res.status(404).json({ error: "Model file not found" });
   try {
-    const settings = loadSettings();
-    const base = join(__dirname, "../../node_modules/nodejs-whisper/cpp/whisper.cpp");
-    const unpacked = base.replace(/app\.asar([/\\])/g, "app.asar.unpacked$1");
-    const whisperCppPath = existsSync(join(unpacked, "models")) ? unpacked : base;
-    const execName = process.platform === "win32" ? "whisper-cli.exe" : "whisper-cli";
-    const binaryPaths = [
-      join(whisperCppPath, "build", "bin", execName),
-      join(whisperCppPath, "build", "bin", "Release", execName),
-      join(whisperCppPath, "build", "bin", "Debug", execName),
-      join(whisperCppPath, "build", execName),
-    ];
-    const whisperBuilt = binaryPaths.some(existsSync);
-
-    const modelName = req.query.whisperModel || settings.whisperModel || "base";
-    const modelFiles = {
-      "tiny": "ggml-tiny.bin", "tiny.en": "ggml-tiny.en.bin",
-      "base": "ggml-base.bin", "base.en": "ggml-base.en.bin",
-      "small": "ggml-small.bin", "small.en": "ggml-small.en.bin",
-      "medium": "ggml-medium.bin", "medium.en": "ggml-medium.en.bin",
-      "large-v1": "ggml-large-v1.bin", "large": "ggml-large.bin",
-      "large-v3-turbo": "ggml-large-v3-turbo.bin",
-    };
-    const modelFile = modelFiles[modelName];
-    const modelPresent = modelFile
-      ? existsSync(join(whisperCppPath, "models", modelFile))
-      : false;
-
-    let ollamaAvailable = false;
-    let ollamaModelReady = false;
-    try {
-      const r = await fetch(`${settings.ollamaBaseUrl || "http://localhost:11434"}/api/tags`, {
-        signal: AbortSignal.timeout(2000),
-      });
-      if (r.ok) {
-        ollamaAvailable = true;
-        const data = await r.json();
-        const pulled = (data.models || []).map((m) => m.name.toLowerCase());
-        const target = (req.query.ollamaModel || settings.ollamaModel || "").toLowerCase();
-        ollamaModelReady = pulled.some((n) => n === target || n.startsWith(target + ":") || n === target + ":latest");
-      }
-    } catch {
-      ollamaAvailable = false;
-    }
-
-    let libreTranslateAvailable = false;
-    if (settings.libreTranslateUrl) {
-      try {
-        const r = await fetch(`${settings.libreTranslateUrl}/languages`, {
-          signal: AbortSignal.timeout(2000),
-        });
-        libreTranslateAvailable = r.ok;
-      } catch {
-        libreTranslateAvailable = false;
-      }
-    }
-
-    let diarizePyReady = false;
-    try {
-      let pythonBin = process.env.DIARIZE_PYTHON;
-      if (!pythonBin) {
-        const { default: os } = await import("os");
-        const isWin = process.platform === "win32";
-        const venvPython = join(os.homedir(), ".node-trans", "diarize-venv",
-          isWin ? "Scripts\\python.exe" : "bin/python3");
-        pythonBin = existsSync(venvPython) ? venvPython : "python3";
-      }
-      const verifyScript = [
-        "import torchaudio",
-        "hasattr(torchaudio,'set_audio_backend') or setattr(torchaudio,'set_audio_backend',lambda *a,**kw:None)",
-        "hasattr(torchaudio,'get_audio_backend') or setattr(torchaudio,'get_audio_backend',lambda:'soundfile')",
-        "import numpy as np",
-        "hasattr(np,'NaN') or setattr(np,'NaN',np.nan)",
-        "hasattr(np,'NAN') or setattr(np,'NAN',np.nan)",
-        "import torch, whisper, pyannote.audio",
-      ].join("; ");
-      await new Promise((resolve) => {
-        exec(`"${pythonBin}" -c "${verifyScript}"`, { timeout: 15000 }, (err) => {
-          diarizePyReady = !err;
-          resolve();
-        });
-      });
-    } catch {
-      diarizePyReady = false;
-    }
-
-    res.json({ whisperBuilt, modelPresent, ollamaAvailable, ollamaModelReady, libreTranslateAvailable, diarizePyReady, platform: process.platform });
+    unlinkSync(modelPath);
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Whisper setup — SSE endpoint for streaming install + model download progress
+router.get("/local/whisper-setup", async (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const send = (data) => {
+    try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch {}
+  };
+
+  const modelName = req.query.model || "base";
+
+  try {
+    const { runWhisperSetup } = await import("../local/whisper-setup.js");
+    await runWhisperSetup(modelName, (event) => send(event));
+    send({ done: true });
+  } catch (err) {
+    send({ error: err.message });
+  }
+  res.end();
 });
 
 // Diarize setup — SSE endpoint for streaming install logs

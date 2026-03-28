@@ -35,11 +35,11 @@ const READY_TIMEOUT_MS = 120_000;
 function getPythonBin() {
   if (process.env.DIARIZE_PYTHON) return process.env.DIARIZE_PYTHON;
   const isWin = process.platform === "win32";
-  const venvPython = join(
-    os.homedir(), ".node-trans", "diarize-venv",
-    isWin ? "Scripts\\python.exe" : "bin/python3"
-  );
-  if (existsSync(venvPython)) return venvPython;
+  const pyBin = isWin ? "Scripts\\python.exe" : "bin/python3";
+  for (const venvName of ["venv", "diarize-venv"]) {
+    const p = join(os.homedir(), ".node-trans", venvName, pyBin);
+    if (existsSync(p)) return p;
+  }
   return isWin ? "py" : "python3";
 }
 
