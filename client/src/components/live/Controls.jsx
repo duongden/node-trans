@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useSocket } from "../../context/SocketContext";
 import { useI18n } from "../../i18n/I18nContext";
-import { deleteSession, renameSession, getExportUrl, fetchSettings } from "../../utils/api";
-import { CONTEXT_PRESETS } from "../../utils/constants";
+import { deleteSession, renameSession, getExportUrl, fetchSettings, saveSettings } from "../../utils/api";
+import { CONTEXT_PRESETS, LANGUAGE_OPTIONS } from "../../utils/constants";
 import { ConfirmDialog, PromptDialog } from "../Modal";
 
 const btnBase = "px-5 py-2 rounded-xl text-sm font-semibold transition-all duration-200 cursor-pointer border-none whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 text-white";
@@ -27,15 +27,28 @@ export default function Controls() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [contextPreset, setContextPreset] = useState("none");
   const [customContext, setCustomContext] = useState("");
+  const [audioSource, setAudioSource] = useState("mic");
+  const [micSourceLang, setMicSourceLang] = useState("auto");
+  const [micTargetLang, setMicTargetLang] = useState("vi");
+  const [sysSourceLang, setSysSourceLang] = useState("auto");
+  const [sysTargetLang, setSysTargetLang] = useState("vi");
   const defaultCtx = useRef({ preset: "none", custom: "" });
+  const settingsRef = useRef({});
 
   useEffect(() => {
     fetchSettings()
       .then((s) => {
+        settingsRef.current = s;
         defaultCtx.current = {
           preset: s.defaultContext || "none",
           custom: s.defaultCustomContext || "",
         };
+        const defTarget = s.targetLanguage || "vi";
+        setAudioSource(s.audioSource || "mic");
+        setMicSourceLang(s.micWhisperLanguage || "auto");
+        setMicTargetLang(s.micTargetLanguage || defTarget);
+        setSysSourceLang(s.systemWhisperLanguage || "auto");
+        setSysTargetLang(s.systemTargetLanguage || defTarget);
         if (!state.selectedSessionId) {
           setContextPreset(defaultCtx.current.preset);
           setCustomContext(defaultCtx.current.custom);
@@ -43,6 +56,12 @@ export default function Controls() {
       })
       .catch(() => {});
   }, []);
+
+  const quickSave = (patch) => {
+    const merged = { ...settingsRef.current, ...patch };
+    settingsRef.current = merged;
+    saveSettings(merged).catch(() => {});
+  };
 
   useEffect(() => {
     if (!isListening) {
@@ -114,29 +133,62 @@ export default function Controls() {
 
   const loadingCls = pendingAction ? " btn-loading" : "";
 
+  const sCls = "bg-white/80 dark:bg-white/5 text-gray-700 dark:text-gray-300 border border-gray-200/50 dark:border-indigo-500/10 px-2 py-1.5 rounded-lg text-xs outline-none cursor-pointer hover:border-gray-300 dark:hover:border-indigo-500/30 transition-colors w-full";
+  const lCls = "text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wider font-medium whitespace-nowrap";
+  const arrowCls = "text-gray-300 dark:text-gray-600 text-xs text-center";
+
+  const LangRow = ({ sourceVal, onSource, targetVal, onTarget }) => (
+    <>
+      <select className={sCls} value={sourceVal} onChange={onSource}>
+        <option value="auto">Auto</option>
+        {LANGUAGE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <span className={arrowCls}>→</span>
+      <select className={sCls} value={targetVal} onChange={onTarget}>
+        {LANGUAGE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </>
+  );
+
   return (
     <>
-      <div className="flex flex-wrap gap-2 items-center mb-2">
-        <label className="text-xs text-gray-400 dark:text-gray-600 uppercase tracking-wider font-medium">
-          {t("context")}
-        </label>
-        <select
-          className="bg-white/80 dark:bg-white/5 text-gray-700 dark:text-gray-300 border border-gray-200/50 dark:border-indigo-500/10 px-3 py-2 rounded-xl text-sm outline-none"
-          value={contextPreset}
-          onChange={(e) => setContextPreset(e.target.value)}
-        >
-          {CONTEXT_PRESETS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
-        {contextPreset === "custom" && (
-          <input
-            className="flex-1 min-w-[320px] bg-white/80 dark:bg-white/5 text-gray-700 dark:text-gray-300 border border-gray-200/50 dark:border-indigo-500/10 px-3 py-2 rounded-xl text-sm outline-none"
-            placeholder={t("contextPlaceholder")}
-            value={customContext}
-            onChange={(e) => setCustomContext(e.target.value)}
-          />
-        )}
+      <div className="mb-2 py-2.5 px-3 bg-white/50 dark:bg-white/3 border border-gray-200/50 dark:border-indigo-500/10 rounded-xl">
+        <div className="grid gap-x-2 gap-y-1.5 items-center" style={{ gridTemplateColumns: "auto 1fr auto 1fr" }}>
+
+          {/* Mic row */}
+          {audioSource !== "system" && <>
+            <span className={lCls}>Mic</span>
+            <LangRow
+              sourceVal={micSourceLang} onSource={(e) => { setMicSourceLang(e.target.value); quickSave({ micWhisperLanguage: e.target.value }); }}
+              targetVal={micTargetLang}  onTarget={(e) => { setMicTargetLang(e.target.value); quickSave({ micTargetLanguage: e.target.value, targetLanguage: e.target.value }); }}
+            />
+          </>}
+
+          {/* Sys row */}
+          {audioSource !== "mic" && <>
+            <span className={lCls}>Sys</span>
+            <LangRow
+              sourceVal={sysSourceLang} onSource={(e) => { setSysSourceLang(e.target.value); quickSave({ systemWhisperLanguage: e.target.value }); }}
+              targetVal={sysTargetLang}  onTarget={(e) => { setSysTargetLang(e.target.value); quickSave({ systemTargetLanguage: e.target.value }); }}
+            />
+          </>}
+
+          {/* Divider */}
+          <div className="col-span-4 border-t border-gray-100/60 dark:border-indigo-500/10 -mb-0.5" />
+
+          {/* Context row */}
+          <span className={lCls}>{t("context")}</span>
+          <div className="col-span-3 flex gap-2">
+            <select className={`${sCls} flex-1`} value={contextPreset} onChange={(e) => setContextPreset(e.target.value)}>
+              {CONTEXT_PRESETS.map((opt) => <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>)}
+            </select>
+            {contextPreset === "custom" && (
+              <input className={`${sCls} flex-[2]`} placeholder={t("contextPlaceholder")}
+                value={customContext} onChange={(e) => setCustomContext(e.target.value)} />
+            )}
+          </div>
+
+        </div>
       </div>
       <div className="py-2.5 flex items-center gap-3 flex-wrap">
       <button

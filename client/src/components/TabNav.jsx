@@ -1,37 +1,23 @@
 import { useI18n } from "../i18n/I18nContext";
 import { useSocket } from "../context/SocketContext";
 
-export default function TabNav({ activeTab, onTabChange }) {
+export default function TabNav({ onOpenSettings }) {
   const { t } = useI18n();
   const { state, dispatch } = useSocket();
-  const TABS = [
-    { key: "live", label: t("tabLive") },
-    { key: "settings", label: t("tabSettings") },
-  ];
+
+  const btnCls = (active) =>
+    `border-none px-3 py-1.5 cursor-pointer rounded-xl text-sm font-medium transition-all duration-200 active:scale-95 ${
+      active
+        ? "bg-linear-to-r from-indigo-500/15 to-cyan-500/10 dark:from-indigo-500/20 dark:to-cyan-500/10 text-indigo-600 dark:text-cyan-400 shadow-sm"
+        : "bg-transparent text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-white/5"
+    }`;
 
   return (
     <nav className="flex items-center gap-1 py-3">
-      {TABS.map((tab) => (
+      <div className="ml-auto flex items-center gap-1">
+        {/* Overlay toggle */}
         <button
-          key={tab.key}
-          className={`border-none px-4 py-1.5 cursor-pointer rounded-xl text-sm font-medium transition-all duration-200 active:scale-95 ${
-            activeTab === tab.key
-              ? "bg-linear-to-r from-indigo-500/15 to-cyan-500/10 dark:from-indigo-500/20 dark:to-cyan-500/10 text-indigo-600 dark:text-cyan-400 shadow-sm"
-              : "bg-transparent text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-white/5"
-          }`}
-          onClick={() => onTabChange(tab.key)}
-        >
-          {tab.label}
-        </button>
-      ))}
-
-      <div className="ml-auto">
-        <button
-          className={`border-none px-3 py-1.5 cursor-pointer rounded-xl text-sm font-medium transition-all duration-200 active:scale-95 ${
-            state.overlayVisible
-              ? "bg-linear-to-r from-amber-500/15 to-orange-500/10 dark:from-amber-500/20 dark:to-orange-500/10 text-amber-600 dark:text-amber-400 shadow-sm"
-              : "bg-transparent text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-white/5"
-          }`}
+          className={btnCls(state.overlayVisible)}
           onClick={() => {
             if (window.electronAPI?.toggleOverlay) {
               window.electronAPI.toggleOverlay({
@@ -49,6 +35,14 @@ export default function TabNav({ activeTab, onTabChange }) {
             <path d="M5 10.5h10v1H5zM5 13h10v1H5z" />
           </svg>
           {t("overlay")}
+        </button>
+
+        {/* Settings button */}
+        <button className={btnCls(false)} onClick={onOpenSettings} title={t("tabSettings")}>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 inline-block align-[-2px] mr-1">
+            <path fillRule="evenodd" d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .205 1.251l-1.18 2.044a1 1 0 0 1-1.186.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.33 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.113a7.047 7.047 0 0 1 0-2.228L1.821 7.773a1 1 0 0 1-.205-1.251l1.18-2.044a1 1 0 0 1 1.186-.447l1.598.54A6.993 6.993 0 0 1 7.51 3.456l.33-1.652ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" clipRule="evenodd" />
+          </svg>
+          {t("tabSettings")}
         </button>
       </div>
     </nav>

@@ -32,6 +32,7 @@ const initialState = {
   statusText: "connecting",
   statusKey: "connecting",
   statusClass: "",
+  toasts: [],
   utterances: [],
   partialResults: {},
   speakerColorMap: new Map(),
@@ -153,13 +154,13 @@ function reducer(state, action) {
     }
     case "ERROR": {
       const err = action.payload;
+      const id = Date.now() + Math.random();
       return {
         ...state,
         pendingAction: false,
-        statusKey: err.key || null,
-        statusParams: err.params || undefined,
-        statusText: err.key ? null : err.message,
-        statusClass: "error",
+        statusKey: "stopped",
+        statusClass: "",
+        toasts: [...state.toasts, { id, key: err.key || null, params: err.params, message: err.message || null, type: "error" }],
       };
     }
     case "CONNECTED":
@@ -177,13 +178,15 @@ function reducer(state, action) {
         listeningSince: null,
         pausedElapsed: 0,
       };
-    case "TOAST":
+    case "TOAST": {
+      const id = Date.now() + Math.random();
       return {
         ...state,
-        statusKey: null,
-        statusText: action.payload.message,
-        statusClass: action.payload.type || "",
+        toasts: [...state.toasts, { id, message: action.payload.message, type: action.payload.type || "" }],
       };
+    }
+    case "DISMISS_TOAST":
+      return { ...state, toasts: state.toasts.filter((t) => t.id !== action.payload) };
     case "SET_PENDING":
       return { ...state, pendingAction: true };
     case "CLEAR_TRANSCRIPT":

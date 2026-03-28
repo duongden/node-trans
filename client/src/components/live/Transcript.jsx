@@ -50,7 +50,7 @@ export default function Transcript({ utterances, speakerColorMap, speakerAliases
 function PartialUtterance({ data, speakerColorMap }) {
   const { t } = useI18n();
   const idx = getSpeakerIndex(data.speaker, speakerColorMap);
-  const speaker = data.speaker ? `${t("speaker")} ${data.speaker}` : t("speaker");
+  const speaker = data.speaker ? `${t("speaker")} ${idx + 1}` : t("speaker");
 
   return (
     <div className={`speaker-${idx} p-3 mb-1.5 rounded-xl bg-gray-50/80 dark:bg-white/3 border-l-3 border-l-(--speaker-color,#444) animate-pulse opacity-70`}>

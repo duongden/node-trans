@@ -1,336 +1,180 @@
 # Node Trans
 
-[English](README.en.md)
+Real-time audio transcription and translation app. Captures audio from microphone, system audio, or both. Supports two transcription modes: **Soniox** (cloud, built-in translation) and **Local Whisper** (fully offline).
 
-Ứng dụng dịch âm thanh thời gian thực sử dụng [Soniox API](https://soniox.com/docs/stt/rt/real-time-translation). Hỗ trợ nghe từ microphone, system audio hoặc cả hai, dịch sang ngôn ngữ đích và lưu lịch sử hội thoại.
+Runs as a **web app** (browser) or **desktop app** (Electron). Supports **macOS** and **Windows**.
 
-Chạy trên **trình duyệt** (web) hoặc **ứng dụng desktop** (Electron). Hỗ trợ **macOS** và **Windows**.
+---
 
-## Yêu cầu
+## Features
 
-- **Node.js** >= 20
-- **ffmpeg** (tự động tải khi build Electron, hoặc cài thủ công cho chế độ web)
-- **Soniox API Key** (đăng ký tại [soniox.com](https://soniox.com))
+- Real-time speech-to-text with live partial results
+- Automatic translation (cloud via Soniox, or local via Ollama / LibreTranslate)
+- Speaker diarization — identifies who is speaking (`Speaker 1`, `Speaker 2`, ...)
+- Session history with speaker renaming and Markdown export
+- Always-on-top overlay window (Electron)
+- Bilingual UI (English / Vietnamese)
 
-### Cài ffmpeg (chế độ web)
+---
 
-| Hệ điều hành | Cách cài |
-|---------------|----------|
-| macOS | `brew install ffmpeg` |
-| Windows | `winget install ffmpeg` hoặc tải từ [ffmpeg.org](https://ffmpeg.org/download.html), thêm vào PATH |
-
-## Cài đặt
+## Quick Start
 
 ```bash
-# Clone và cài dependencies
 npm install
-
-# Build frontend
-npm run build
+npm run start      # web app — open http://localhost:3000
 ```
 
-## Chạy
-
-### Chế độ Web (trình duyệt)
+For Electron:
 
 ```bash
-# Production
-npm start
-
-# Development (chạy server + client đồng thời)
-npm run dev
-```
-
-- Production: mở `http://localhost:3000`
-- Development: mở `http://localhost:5173` (Vite dev server, tự proxy API)
-
-### Chế độ Electron (desktop app)
-
-```bash
-# Development
 npm run electron:dev
-
-# Build app
-npm run electron:build          # Build cho platform hiện tại
-npm run electron:build:mac      # Build cho macOS
-npm run electron:build:win      # Build cho Windows
 ```
 
-## Cấu hình API Key
-
-Có 2 cách cấu hình Soniox API Key:
-
-1. **Trong app** — vào tab **Settings** → nhập API key vào ô **Soniox API Key**
-2. **File `.env`** — tạo file `.env` ở thư mục gốc:
-   ```
-   SONIOX_API_KEY=your_api_key_here
-   ```
-
-API key cài trong Settings sẽ được ưu tiên hơn `.env`.
-
-## Capture System Audio
-
-Để capture âm thanh hệ thống (Google Meet, Zoom, YouTube, v.v.), máy tính cần một **virtual audio driver** — thiết bị âm thanh ảo hoạt động như một "dây nối" giữa loa và microphone, cho phép app nghe được âm thanh đang phát ra.
-
-> **Tại sao cần?** Mặc định, hệ điều hành không cho phép app trực tiếp "nghe trộm" output âm thanh. Virtual driver tạo ra một thiết bị trung gian: bạn chuyển output sang thiết bị ảo đó, và app đọc input từ cùng thiết bị đó.
+See [DEV-BUILD.md](DEV-BUILD.md) for build instructions and troubleshooting.
 
 ---
 
-### macOS — BlackHole
+## Hardware Requirements
 
-**BlackHole** là virtual audio driver miễn phí, phổ biến nhất trên macOS.
+> Only relevant for **Local Whisper** mode. Soniox only needs an internet connection.
 
-#### Bước 1 — Cài BlackHole
+### macOS
 
-**Cách A: Homebrew (khuyên dùng)**
+| Config      | RAM                 | Usable features                                                |
+| ----------- | ------------------- | -------------------------------------------------------------- |
+| Minimum     | 8 GB                | Whisper tiny/base + Ollama gemma3:1b, no diarization           |
+| Recommended | Apple Silicon 16 GB | Whisper medium/large-v3-turbo + Ollama gemma3:4b + diarization |
+| Optimal     | Apple Silicon 32 GB | All features with large models, very smooth                    |
+
+**Apple Silicon recommended** (M1+): unified memory allows CPU and GPU to share RAM — Whisper (Metal), Ollama (Metal), and diarization (MPS) are all hardware-accelerated, 4–6× faster than Intel at the same model size.
+
+### Windows
+
+| Config      | RAM   | GPU                               | Usable features                                         |
+| ----------- | ----- | --------------------------------- | ------------------------------------------------------- |
+| Minimum     | 16 GB | None                              | Whisper tiny/base + small Ollama (slow), no diarization |
+| Recommended | 16 GB | NVIDIA 8 GB VRAM (RTX 3060+)      | Whisper medium + Ollama gemma3:4b + diarization         |
+| Optimal     | 32 GB | NVIDIA 12 GB+ VRAM (RTX 4070 Ti+) | All features comfortably                                |
+
+AMD GPUs are not supported. Without an NVIDIA GPU, diarization cannot run in real-time. Install [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) for GPU acceleration.
+
+### Disk space (Local Whisper)
+
+| Component                           | Size          |
+| ----------------------------------- | ------------- |
+| Whisper base model                  | ~150 MB       |
+| Whisper large-v3-turbo model        | ~1.6 GB       |
+| Ollama + gemma3:4b model            | ~3.5 GB       |
+| Python venv for diarization (torch) | ~4–6 GB       |
+| pyannote diarization model          | ~1 GB         |
+| **Total (full setup)**              | **~10–12 GB** |
+
+---
+
+## Soniox (Cloud)
+
+Requires a free API key from [soniox.com](https://soniox.com).
+
+Configure in **Settings → Engine → Soniox API Key**, or via `.env`:
+
+```
+SONIOX_API_KEY=your_api_key_here
+```
+
+Soniox handles transcription, translation, and speaker diarization out of the box — no additional setup needed.
+
+---
+
+## Local Whisper (Offline)
+
+No API key required. All processing happens on-device.
+
+**1. Build whisper.cpp** (one-time):
+
 ```bash
-brew install blackhole-2ch
+npm run setup:whisper
 ```
 
-**Cách B: Tải trực tiếp**
-- Vào [existential.audio/blackhole](https://existential.audio/blackhole/) → chọn **BlackHole 2ch** → điền email → tải file `.pkg` → chạy installer
+**2. Download a model:**
 
-Sau khi cài xong, **restart máy** để driver được load.
+```bash
+cd node_modules/nodejs-whisper/cpp/whisper.cpp
+bash models/download-ggml-model.sh base   # or: tiny, small, medium, large-v3-turbo
+```
 
-#### Bước 2 — Kiểm tra cài thành công
+**3. Select in app:** Settings → Engine → Local Whisper → choose your model.
 
-1. Mở **System Settings → Sound**
-2. Ở tab **Output** và **Input**, bạn sẽ thấy **BlackHole 2ch** trong danh sách
-3. Nếu chưa thấy → restart lại máy
+**4. Translation** (optional): configure Ollama or LibreTranslate in Settings → Engine.
 
-#### Bước 3 — Tạo Aggregate Device (để nghe + capture cùng lúc)
+### Whisper Models
 
-> Bước này quan trọng: nếu chỉ chọn BlackHole làm output thì loa sẽ bị tắt tiếng. Aggregate Device giúp âm thanh ra loa **đồng thời** được capture vào app.
+| Model            | Size    | RAM   | Speed     | Quality   |
+| ---------------- | ------- | ----- | --------- | --------- |
+| `tiny`           | ~75 MB  | ~1 GB | Very fast | Low       |
+| `base`           | ~150 MB | ~1 GB | Fast      | Medium    |
+| `small`          | ~500 MB | ~2 GB | Medium    | Good      |
+| `medium`         | ~1.5 GB | ~5 GB | Slow      | High      |
+| `large-v3-turbo` | ~1.6 GB | ~4 GB | Medium    | Very high |
+| `large`          | ~3 GB   | ~8 GB | Slowest   | Best      |
 
-1. Mở **Audio MIDI Setup**
-   - Spotlight (⌘ Space) → gõ "Audio MIDI Setup" → Enter
-   - Hoặc: `/Applications/Utilities/Audio MIDI Setup.app`
-
-2. Nhấn **"+"** ở góc dưới bên trái → chọn **Create Aggregate Device**
-
-3. Trong danh sách bên phải, **tick chọn cả hai**:
-   - ✅ **BlackHole 2ch**
-   - ✅ **Loa đang dùng** (ví dụ: "MacBook Pro Speakers", "External Headphones")
-
-4. Đặt tên dễ nhớ, ví dụ: **"Node Trans Aggregate"**
-   - Double-click vào tên "Aggregate Device" ở cột trái để đổi tên
-
-5. Đảm bảo **clock source** được set vào loa chính (không phải BlackHole) để tránh tiếng lạch cạch
-
-#### Bước 4 — Đặt Aggregate Device làm Output mặc định
-
-1. Vào **System Settings → Sound → Output**
-2. Chọn **"Node Trans Aggregate"** (hoặc tên bạn đặt ở bước 3)
-3. Từ lúc này, âm thanh sẽ ra loa bình thường và BlackHole sẽ capture đồng thời
-
-#### Bước 5 — Cấu hình trong app
-
-1. Vào tab **Settings** trong Node Trans
-2. **Audio Source** → chọn **"System Audio"** hoặc **"Both"** (nếu muốn dịch cả micro lẫn hệ thống)
-3. **System Audio Device** → chọn **"BlackHole 2ch"**
-4. Nhấn **Start** → app sẽ bắt đầu dịch âm thanh từ hệ thống
-
-> **Lưu ý khi dùng xong:** Nhớ chuyển Output về loa gốc (MacBook Pro Speakers) trong System Settings → Sound, vì Aggregate Device đôi khi gây delay nhỏ.
-
-#### Xử lý sự cố
-
-| Vấn đề | Giải pháp |
-|--------|-----------|
-| Không thấy BlackHole trong danh sách | Restart máy, nếu vẫn không thấy thì cài lại |
-| Âm thanh bị delay/echo | Trong Audio MIDI Setup, đặt Clock Source = loa chính |
-| App không detect BlackHole | Khởi động lại app, kiểm tra System Audio Device đã chọn đúng chưa |
-| Mất âm thanh sau khi cài | Kiểm tra Output trong System Settings → Sound, chọn lại Aggregate Device |
+Recommended: `large-v3-turbo` on Apple Silicon, `base` on low-end hardware.
 
 ---
 
-### Windows — VB-CABLE
+## Speaker Diarization (Local Whisper)
 
-**VB-CABLE** là virtual audio driver miễn phí trên Windows, tạo ra một cặp thiết bị: **CABLE Input** (output ảo) và **CABLE Output** (input ảo).
+Identifies individual speakers using [pyannote-audio](https://github.com/pyannote/pyannote-audio). Requires Python 3.10–3.12 and a free HuggingFace token.
 
-#### Bước 1 — Tải và cài VB-CABLE
+**1. Install Python dependencies:**
 
-1. Vào [vb-audio.com/Cable](https://vb-audio.com/Cable/)
-2. Kéo xuống phần **"Download VB-CABLE Driver"** → nhấn tải
-3. Giải nén file `.zip` → chạy **`VBCABLE_Setup_x64.exe`** (64-bit) với quyền **Administrator**
-   - Chuột phải → **Run as administrator**
-4. Nhấn **"Install Driver"** → chờ cài xong
-5. **Restart máy** — bắt buộc để driver hoạt động
+```bash
+npm run setup:diarize
+```
 
-#### Bước 2 — Kiểm tra cài thành công
+Or via the UI: Settings → Engine → Setup Diarization.
 
-1. Chuột phải vào icon loa ở taskbar → **Sound settings** (hoặc **Open Sound settings**)
-2. Ở phần **Output**, bạn sẽ thấy **"CABLE Input (VB-Audio Virtual Cable)"**
-3. Ở phần **Input**, bạn sẽ thấy **"CABLE Output (VB-Audio Virtual Cable)"**
+**2. Create a HuggingFace READ token** at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens), then accept terms for:
 
-#### Bước 3 — Chuyển Output sang CABLE Input
+- [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
+- [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
 
-1. Vào **Settings → System → Sound** (hoặc chuột phải vào icon loa → Open Sound settings)
-2. Ở phần **Output** → chọn **"CABLE Input (VB-Audio Virtual Cable)"**
+**3. Enter the token** in Settings → Engine → HuggingFace Token.
 
-> ⚠️ Sau bước này, loa sẽ **bị tắt tiếng** vì âm thanh đang đi vào CABLE. Xem Bước 4 để nghe lại.
+On first use, the app downloads ~1 GB of models. Subsequent starts are ready in ~10–15 seconds.
 
-#### Bước 4 — Bật "Listen to this device" để nghe loa đồng thời (tuỳ chọn)
+---
 
-Nếu bạn muốn vừa nghe loa vừa để app capture:
+## System Audio Capture
 
-1. Chuột phải icon loa → **Sounds** → tab **Recording**
-2. Double-click vào **"CABLE Output (VB-Audio Virtual Cable)"**
-3. Tab **Listen** → tick **"Listen to this device"**
-4. **Playback through this device** → chọn loa thật của bạn (ví dụ: Speakers / Headphones)
-5. OK → Apply
+To capture audio from other apps (Zoom, Meet, YouTube, etc.), a virtual audio driver is required.
 
-#### Bước 5 — Cấu hình trong app
+See **[AUDIO-CAPTURE.md](AUDIO-CAPTURE.md)** for setup instructions:
 
-1. Vào tab **Settings** trong Node Trans
-2. **Audio Source** → chọn **"System Audio"** hoặc **"Both"**
-3. **System Audio Device** → chọn **"CABLE Output (VB-Audio Virtual Cable)"**
-4. Nhấn **Start**
+- **macOS**: BlackHole + Aggregate Device
+- **Windows**: VB-CABLE or Stereo Mix
 
-#### Phương án thay thế — Stereo Mix (không cần cài phần mềm)
+---
 
-Một số máy Windows có tính năng **Stereo Mix** sẵn (thường có trên mainboard với Realtek audio):
+## Documentation
 
-1. Chuột phải icon loa → **Sounds** → tab **Recording**
-2. Chuột phải vào vùng trống → chọn **"Show Disabled Devices"**
-3. Nếu thấy **Stereo Mix** → chuột phải → **Enable**
-4. Trong app, chọn **Stereo Mix** làm System Audio Device
+| File                                 | Contents                                           |
+| ------------------------------------ | -------------------------------------------------- |
+| [DEV-BUILD.md](DEV-BUILD.md)         | Development setup, build commands, troubleshooting |
+| [ARCHITECTURE.md](ARCHITECTURE.md)   | System architecture, data flow, component overview |
+| [AUDIO-CAPTURE.md](AUDIO-CAPTURE.md) | System audio capture setup (BlackHole / VB-CABLE)  |
 
-> Stereo Mix không cần Bước 3 (không phải đổi Output), nhưng chất lượng capture đôi khi kém hơn VB-CABLE.
-
-#### Xử lý sự cố
-
-| Vấn đề | Giải pháp |
-|--------|-----------|
-| Không thấy CABLE sau khi cài | Restart máy, kiểm tra đã Run as Administrator chưa |
-| Âm thanh mất sau khi chọn CABLE Output | Bật "Listen to this device" theo Bước 4 |
-| App không thấy CABLE Output trong dropdown | Khởi động lại app, kiểm tra driver đã cài đúng chưa |
-| Tiếng bị trễ (latency) | Vào VB-CABLE Control Panel → tăng buffer size |
-
-## Sử dụng
-
-### Giao diện chính
-
-Giao diện gồm **Live tab** để dịch trực tiếp và **Sidebar** bên trái hiển thị danh sách sessions. App hỗ trợ đa ngôn ngữ (English / Tiếng Việt), chuyển đổi trong Settings.
-
-### Tab Dịch trực tiếp
-
-- Nhấn **▶ Start** để bắt đầu nghe và dịch
-- **⏸ Pause** — tạm dừng capture, giữ nguyên session
-- **▶ Resume** — tiếp tục capture trong cùng session
-- **⊕ New Meeting** — kết thúc session hiện tại, bắt đầu session mới
-- **⏹ Stop** — kết thúc session
-- **Resume Session** — mở lại session đã kết thúc và tiếp tục ghi
-
-Mỗi speaker được phân biệt bằng màu sắc riêng. Nội dung gốc và bản dịch hiển thị realtime.
-
-### Sidebar Sessions
-
-- Danh sách các session đã lưu, hiển thị thời gian, thời lượng, nguồn, số câu
-- **Click** vào session để xem chi tiết transcript
-- Chế độ chọn nhiều để xóa hàng loạt
-- **Đổi tên session** và **đổi tên speaker** (ví dụ "Speaker 1" → "Anh Nam")
-- **Export Markdown** để lưu nội dung ra file `.md`
-
-### Tab Settings
-
-| Cài đặt | Mô tả |
-|---------|-------|
-| Soniox API Key | API key để sử dụng dịch vụ Soniox |
-| Audio Source | Microphone / System Audio / Both |
-| Microphone Device | Chọn microphone (từ danh sách input devices) |
-| System Audio Device | Chọn device để capture system audio. Hiện khi chọn System Audio hoặc Both |
-| Target Language | Ngôn ngữ dịch chung (mặc định: Tiếng Việt) |
-| Mic Target Language | Ngôn ngữ dịch riêng cho microphone (khi dùng Both) |
-| System Target Language | Ngôn ngữ dịch riêng cho system audio (khi dùng Both) |
-| UI Language | Ngôn ngữ giao diện (English / Tiếng Việt) |
+---
 
 ## Tech Stack
 
-| Layer | Công nghệ |
-|-------|-----------|
-| Frontend | React 19, Vite, Tailwind CSS v4, Socket.IO Client |
-| Backend | Node.js, Express 5, Socket.IO |
-| Desktop | Electron |
-| Audio | ffmpeg (avfoundation trên macOS, dshow trên Windows) |
-| Speech-to-Text | Soniox API (realtime translation) |
-| Database | SQLite (better-sqlite3) |
-
-## Cấu trúc project
-
-```
-node-trans/
-├── client/                # React frontend (Vite + Tailwind CSS)
-│   ├── index.html
-│   ├── vite.config.js
-│   └── src/
-│       ├── main.jsx
-│       ├── App.jsx
-│       ├── style.css
-│       ├── hooks/         # useTheme
-│       ├── context/       # SocketContext (useReducer)
-│       ├── i18n/          # Đa ngôn ngữ (I18nContext, locales)
-│       ├── components/    # Header, TabNav, StatusBar, Modal, Sidebar
-│       │   ├── live/      # Controls, Transcript, Utterance
-│       │   ├── history/   # SpeakerList
-│       │   └── settings/  # SettingsTab
-│       └── utils/         # api.js, constants.js, speakerColors.js
-├── electron/              # Electron main process
-│   ├── main.js            # Electron entry point
-│   └── preload.js         # Preload script
-├── scripts/
-│   └── download-ffmpeg.js # Tải ffmpeg binary cho Electron build
-├── build/                 # Build resources (entitlements, icons)
-├── src/
-│   ├── server.js          # Express + Socket.IO server
-│   ├── audio/
-│   │   ├── capture.js     # ffmpeg audio capture (macOS + Windows)
-│   │   └── devices.js     # Liệt kê input/output devices (macOS + Windows)
-│   ├── soniox/
-│   │   └── session.js     # Soniox realtime translation session
-│   ├── storage/
-│   │   ├── history.js     # SQLite DB (sessions, utterances, speaker aliases)
-│   │   ├── settings.js    # Settings (~/.node-trans/settings.json)
-│   │   └── export.js      # Xuất session ra Markdown
-│   └── routes/
-│       └── api.js         # REST API endpoints
-├── electron-builder.config.js  # Cấu hình Electron Builder
-├── dist/                  # Build output (generated by `npm run build`)
-└── package.json
-```
-
-## Dữ liệu
-
-Dữ liệu được lưu tại `~/.node-trans/` (hoặc thư mục userData của Electron):
-
-- `settings.json` — cài đặt ứng dụng
-- `history.db` — SQLite database chứa lịch sử hội thoại
-
-## API Endpoints
-
-| Method | Endpoint | Mô tả |
-|--------|----------|-------|
-| GET | `/api/devices` | Danh sách audio devices |
-| GET | `/api/settings` | Đọc settings |
-| PUT | `/api/settings` | Lưu settings |
-| GET | `/api/sessions` | Danh sách sessions (hỗ trợ `limit`, `offset`) |
-| GET | `/api/sessions/:id` | Chi tiết session + utterances |
-| PATCH | `/api/sessions/:id` | Đổi tên session |
-| DELETE | `/api/sessions/:id` | Xóa session |
-| PUT | `/api/sessions/:id/speakers/:speaker` | Đổi tên speaker |
-| GET | `/api/sessions/:id/export` | Xuất Markdown |
-
-## Socket.IO Events
-
-| Event (Client → Server) | Mô tả |
-|--------------------------|-------|
-| `start-listening` | Bắt đầu capture + dịch (hỗ trợ `sessionId` để resume) |
-| `pause-listening` | Tạm dừng |
-| `resume-listening` | Tiếp tục |
-| `stop-listening` | Dừng |
-
-| Event (Server → Client) | Mô tả |
-|--------------------------|-------|
-| `status` | Trạng thái (listening, paused, sessionId, audioSource) |
-| `utterance` | Câu hoàn chỉnh (source, original + translation) |
-| `partial-result` | Kết quả tạm thời |
-| `error` | Lỗi |
+| Layer               | Technology                                        |
+| ------------------- | ------------------------------------------------- |
+| Frontend            | React 19, Vite, Tailwind CSS v4, Socket.IO Client |
+| Backend             | Node.js, Express 5, Socket.IO                     |
+| Desktop             | Electron                                          |
+| Audio capture       | ffmpeg (avfoundation / dshow)                     |
+| STT (cloud)         | Soniox API                                        |
+| STT (local)         | nodejs-whisper (whisper.cpp)                      |
+| Speaker diarization | pyannote-audio 3.1 (Python)                       |
+| Translation (local) | Ollama / LibreTranslate                           |
+| Database            | SQLite (better-sqlite3)                           |

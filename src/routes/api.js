@@ -1,5 +1,11 @@
 import { Router } from "express";
+import { existsSync } from "fs";
+import { join } from "path";
+import { fileURLToPath } from "url";
+import { exec } from "child_process";
 import { loadSettings, saveSettings } from "../storage/settings.js";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 // Lazy-loaded modules
 let _devices, _history, _export;
@@ -38,24 +44,30 @@ router.get("/devices", async (req, res) => {
 // Settings
 router.get("/settings", (req, res) => {
   const settings = loadSettings();
-  // Mask API key — only indicate whether it's set
   if (settings.sonioxApiKey) {
     settings.sonioxApiKey = "••••" + settings.sonioxApiKey.slice(-4);
+  }
+  if (settings.hfToken) {
+    settings.hfToken = "••••" + settings.hfToken.slice(-4);
   }
   res.json(settings);
 });
 
 router.put("/settings", (req, res) => {
   const body = req.body;
-  // Don't overwrite API key with masked value — preserve the existing key
+  const existing = loadSettings();
   if (!body.sonioxApiKey || body.sonioxApiKey.startsWith("••••")) {
-    const existing = loadSettings();
     body.sonioxApiKey = existing.sonioxApiKey;
   }
+  if (!body.hfToken || body.hfToken.startsWith("••••")) {
+    body.hfToken = existing.hfToken;
+  }
   const updated = saveSettings(body);
-  // Mask API key in response
   if (updated.sonioxApiKey) {
     updated.sonioxApiKey = "••••" + updated.sonioxApiKey.slice(-4);
+  }
+  if (updated.hfToken) {
+    updated.hfToken = "••••" + updated.hfToken.slice(-4);
   }
   res.json(updated);
 });
@@ -71,6 +83,121 @@ router.put("/settings/overlay", (req, res) => {
   const overlay = { ...(current.overlay || {}), ...req.body };
   const updated = saveSettings({ ...current, overlay });
   res.json(updated.overlay);
+});
+
+// Local Whisper status
+router.get("/local/status", async (req, res) => {
+  try {
+    const settings = loadSettings();
+    const base = join(__dirname, "../../node_modules/nodejs-whisper/cpp/whisper.cpp");
+    const unpacked = base.replace(/app\.asar([/\\])/g, "app.asar.unpacked$1");
+    const whisperCppPath = existsSync(join(unpacked, "models")) ? unpacked : base;
+    const execName = process.platform === "win32" ? "whisper-cli.exe" : "whisper-cli";
+    const binaryPaths = [
+      join(whisperCppPath, "build", "bin", execName),
+      join(whisperCppPath, "build", "bin", "Release", execName),
+      join(whisperCppPath, "build", "bin", "Debug", execName),
+      join(whisperCppPath, "build", execName),
+    ];
+    const whisperBuilt = binaryPaths.some(existsSync);
+
+    const modelName = req.query.whisperModel || settings.whisperModel || "base";
+    const modelFiles = {
+      "tiny": "ggml-tiny.bin", "tiny.en": "ggml-tiny.en.bin",
+      "base": "ggml-base.bin", "base.en": "ggml-base.en.bin",
+      "small": "ggml-small.bin", "small.en": "ggml-small.en.bin",
+      "medium": "ggml-medium.bin", "medium.en": "ggml-medium.en.bin",
+      "large-v1": "ggml-large-v1.bin", "large": "ggml-large.bin",
+      "large-v3-turbo": "ggml-large-v3-turbo.bin",
+    };
+    const modelFile = modelFiles[modelName];
+    const modelPresent = modelFile
+      ? existsSync(join(whisperCppPath, "models", modelFile))
+      : false;
+
+    let ollamaAvailable = false;
+    let ollamaModelReady = false;
+    try {
+      const r = await fetch(`${settings.ollamaBaseUrl || "http://localhost:11434"}/api/tags`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (r.ok) {
+        ollamaAvailable = true;
+        const data = await r.json();
+        const pulled = (data.models || []).map((m) => m.name.toLowerCase());
+        const target = (req.query.ollamaModel || settings.ollamaModel || "").toLowerCase();
+        ollamaModelReady = pulled.some((n) => n === target || n.startsWith(target + ":") || n === target + ":latest");
+      }
+    } catch {
+      ollamaAvailable = false;
+    }
+
+    let libreTranslateAvailable = false;
+    if (settings.libreTranslateUrl) {
+      try {
+        const r = await fetch(`${settings.libreTranslateUrl}/languages`, {
+          signal: AbortSignal.timeout(2000),
+        });
+        libreTranslateAvailable = r.ok;
+      } catch {
+        libreTranslateAvailable = false;
+      }
+    }
+
+    let diarizePyReady = false;
+    try {
+      let pythonBin = process.env.DIARIZE_PYTHON;
+      if (!pythonBin) {
+        const { default: os } = await import("os");
+        const isWin = process.platform === "win32";
+        const venvPython = join(os.homedir(), ".node-trans", "diarize-venv",
+          isWin ? "Scripts\\python.exe" : "bin/python3");
+        pythonBin = existsSync(venvPython) ? venvPython : "python3";
+      }
+      const verifyScript = [
+        "import torchaudio",
+        "hasattr(torchaudio,'set_audio_backend') or setattr(torchaudio,'set_audio_backend',lambda *a,**kw:None)",
+        "hasattr(torchaudio,'get_audio_backend') or setattr(torchaudio,'get_audio_backend',lambda:'soundfile')",
+        "import numpy as np",
+        "hasattr(np,'NaN') or setattr(np,'NaN',np.nan)",
+        "hasattr(np,'NAN') or setattr(np,'NAN',np.nan)",
+        "import torch, whisper, pyannote.audio",
+      ].join("; ");
+      await new Promise((resolve) => {
+        exec(`"${pythonBin}" -c "${verifyScript}"`, { timeout: 15000 }, (err) => {
+          diarizePyReady = !err;
+          resolve();
+        });
+      });
+    } catch {
+      diarizePyReady = false;
+    }
+
+    res.json({ whisperBuilt, modelPresent, ollamaAvailable, ollamaModelReady, libreTranslateAvailable, diarizePyReady, platform: process.platform });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Diarize setup — SSE endpoint for streaming install logs
+router.get("/local/diarize-setup", async (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const send = (data) => {
+    try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch {}
+  };
+
+  try {
+    const { runDiarizeSetup } = await import("../local/diarize-setup.js");
+    await runDiarizeSetup((line) => send({ line }));
+    send({ done: true });
+  } catch (err) {
+    send({ error: err.message });
+  }
+  res.end();
 });
 
 // Sessions

@@ -4,13 +4,30 @@ import compression from "compression";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
 import path from "path";
 
 import apiRoutes from "./routes/api.js";
 import { loadSettings } from "./storage/settings.js";
 
+// Set FFMPEG_PATH from ffmpeg-static when not already set (Electron sets it in main.js)
+if (!process.env.FFMPEG_PATH) {
+  try {
+    const require = createRequire(import.meta.url);
+    process.env.FFMPEG_PATH = require("ffmpeg-static");
+  } catch {
+    // ffmpeg-static not installed — fall back to system ffmpeg
+  }
+}
+
+// Add ffmpeg directory to PATH so subprocesses (Python whisper etc.) can find it
+if (process.env.FFMPEG_PATH) {
+  const ffmpegDir = path.dirname(process.env.FFMPEG_PATH);
+  process.env.PATH = `${ffmpegDir}${path.delimiter}${process.env.PATH}`;
+}
+
 // Lazy-loaded modules (deferred to first use for faster startup)
-let _history, _createSonioxSession, _startCapture, _listInputDevices;
+let _history, _createSonioxSession, _createWhisperSession, _createDiarizeSession, _startCapture, _listInputDevices;
 
 async function getHistory() {
   if (!_history) _history = await import("./storage/history.js");
@@ -29,6 +46,20 @@ async function getCapture() {
     _startCapture = mod.startCapture;
   }
   return _startCapture;
+}
+async function getWhisperSession() {
+  if (!_createWhisperSession) {
+    const mod = await import("./local/whisper-session.js");
+    _createWhisperSession = mod.createSession;
+  }
+  return _createWhisperSession;
+}
+async function getDiarizeSession() {
+  if (!_createDiarizeSession) {
+    const mod = await import("./local/diarize-session.js");
+    _createDiarizeSession = mod.createSession;
+  }
+  return _createDiarizeSession;
 }
 async function getDevices() {
   if (!_listInputDevices) {
@@ -67,16 +98,17 @@ io.on("connection", (socket) => {
 
     try {
       const history = await getHistory();
-      const createSonioxSession = await getSonioxSession();
       const startCapture = await getCapture();
       const listInputDevices = await getDevices();
 
       const settings = loadSettings();
+      const engine = settings.transcriptionEngine || "soniox";
 
-      if (!settings.sonioxApiKey) {
+      if (engine === "soniox" && !settings.sonioxApiKey) {
         socket.emit("error", { key: "errNoApiKey" });
         return;
       }
+
 
       const resumeSessionId = opts?.sessionId;
       const requestedContext = typeof opts?.context === "string" && opts.context.trim() ? opts.context.trim() : null;
@@ -167,7 +199,7 @@ io.on("connection", (socket) => {
         audioSource,
         paused: false,
         captures: [],
-        sonioxSessions: [],
+        sttSessions: [],
       };
 
       const sources = audioSource === "both"
@@ -187,15 +219,40 @@ io.on("connection", (socket) => {
           socket.emit("error", { key: "errAudioCapture", params: { source, detail: err.message } });
         });
 
-        // Start Soniox session with per-source target language
+        // Create STT session — Soniox (cloud) or local Whisper
         const sourceTargetLang = source === "mic" ? micTargetLanguage : systemTargetLanguage;
-        const soniox = createSonioxSession({ targetLanguage: sourceTargetLang, languageHints, apiKey: settings.sonioxApiKey || undefined, context: sessionContext });
+        let stt;
+        if (engine === "local-whisper") {
+          const sessionOpts = {
+            targetLanguage: sourceTargetLang,
+            languageHints,
+            whisperModel: settings.whisperModel || "base",
+            whisperLanguage: source === "mic"
+              ? (settings.micWhisperLanguage || "auto")
+              : (settings.systemWhisperLanguage || "auto"),
+            localTranslationEngine: settings.localTranslationEngine || "none",
+            ollamaBaseUrl: settings.ollamaBaseUrl,
+            ollamaModel: settings.ollamaModel,
+            libreTranslateUrl: settings.libreTranslateUrl,
+            context: sessionContext,
+          };
+          if (settings.hfToken) {
+            const createDiarizeSession = await getDiarizeSession();
+            stt = createDiarizeSession({ ...sessionOpts, hfToken: settings.hfToken });
+          } else {
+            const createWhisperSession = await getWhisperSession();
+            stt = createWhisperSession(sessionOpts);
+          }
+        } else {
+          const createSonioxSession = await getSonioxSession();
+          stt = createSonioxSession({ targetLanguage: sourceTargetLang, languageHints, apiKey: settings.sonioxApiKey || undefined, context: sessionContext });
+        }
 
-        soniox.onPartial((partial) => {
+        stt.onPartial((partial) => {
           socket.emit("partial-result", { source, ...partial });
         });
 
-        soniox.onUtterance((utterance, isFinished) => {
+        stt.onUtterance((utterance) => {
           socket.emit("utterance", { source, ...utterance });
 
           // Save to DB
@@ -207,24 +264,25 @@ io.on("connection", (socket) => {
           }
         });
 
-        soniox.onError((err) => {
-          socket.emit("error", { key: "errSoniox", params: { detail: err.message } });
+        stt.onError((err) => {
+          const key = engine === "local-whisper" ? "errWhisper" : "errSoniox";
+          socket.emit("error", { key, params: { detail: err.message } });
         });
 
-        await soniox.connect();
-        await soniox.startStreaming();
+        await stt.connect();
+        await stt.startStreaming();
 
-        // Pipe audio chunks to Soniox
+        // Pipe audio chunks to STT engine
         capture.stream.on("data", (chunk) => {
-          soniox.sendAudio(chunk);
+          stt.sendAudio(chunk);
         });
 
         capture.stream.on("end", () => {
-          soniox.stop().catch(() => {});
+          stt.stop().catch(() => {});
         });
 
         state.captures.push(capture);
-        state.sonioxSessions.push(soniox);
+        state.sttSessions.push(stt);
       }
 
       activeSessions.set(socket.id, state);
@@ -284,9 +342,9 @@ async function stopSession(socketId) {
     capture.stop();
   }
 
-  for (const soniox of state.sonioxSessions) {
+  for (const stt of state.sttSessions) {
     try {
-      await soniox.stop();
+      await stt.stop();
     } catch {
       // Ignore stop errors
     }

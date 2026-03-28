@@ -4,7 +4,7 @@
 export default {
   appId: "com.nodetrans.app",
   productName: "Node Trans",
-  npmRebuild: true,
+  npmRebuild: false,
   directories: {
     output: "release",
     buildResources: "build",
@@ -26,7 +26,7 @@ export default {
     "!node_modules/**/.prettier*",
     "!node_modules/**/{.github,.vscode}/**",
   ],
-  asarUnpack: ["**/better-sqlite3/**"],
+  asarUnpack: ["**/better-sqlite3/**", "**/nodejs-whisper/**", "src/local/diarize.py"],
   extraResources: [
     {
       from: "ffmpeg-bin/${os}",

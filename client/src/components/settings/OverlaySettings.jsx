@@ -4,8 +4,6 @@ import { saveOverlaySettings } from "../../utils/api";
 
 const selectCls = "bg-white/80 dark:bg-white/5 text-gray-700 dark:text-gray-300 border border-gray-200/50 dark:border-indigo-500/10 px-3 py-2 rounded-xl w-full text-sm outline-none transition-all duration-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 hover:border-gray-300 dark:hover:border-indigo-500/20";
 const labelCls = "block text-xs text-gray-400 dark:text-gray-600 mb-1.5 font-medium uppercase tracking-wider";
-const cardCls = "bg-white/60 dark:bg-white/3 border border-gray-200/50 dark:border-indigo-500/10 rounded-2xl p-5";
-const cardTitleCls = "text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider mb-4";
 
 const toggleBtnCls = (active) =>
   `border px-4 py-1.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer active:scale-95 ${
@@ -25,8 +23,7 @@ export default function OverlaySettings() {
   };
 
   return (
-    <div className={cardCls}>
-      <p className={cardTitleCls}>{t("overlaySettings")}</p>
+    <div>
       <div className="space-y-4">
 
         {/* Opacity + Font Scale */}

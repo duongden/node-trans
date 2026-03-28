@@ -1,0 +1,250 @@
+/**
+ * Diarize session — same public interface as whisper-session.js.
+ *
+ * Spawns diarize.py as a persistent subprocess. Audio is sent as base64-encoded
+ * JSON lines over stdin. Utterances with real speaker labels arrive over stdout.
+ *
+ * Fallback: if Python crashes or times out before emitting 'ready', automatically
+ * falls back to whisper-session.js (speaker: null) without breaking the session.
+ */
+
+import { spawn } from "child_process";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+import { existsSync } from "fs";
+import os from "os";
+import { translateText } from "./translate.js";
+import { createSession as createWhisperSession } from "./whisper-session.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// In packaged Electron, __dirname is inside app.asar (virtual filesystem).
+// Python is an external process and cannot read files from ASAR.
+// We resolve the real path via app.asar.unpacked when available.
+function resolveDiarizePy() {
+  const base = join(__dirname, "diarize.py");
+  const unpacked = base.replace(/app\.asar([/\\])/g, "app.asar.unpacked$1");
+  return existsSync(unpacked) ? unpacked : base;
+}
+
+const DIARIZE_PY = resolveDiarizePy();
+
+// How long to wait for Python 'ready' before falling back (covers model download)
+const READY_TIMEOUT_MS = 120_000;
+
+function getPythonBin() {
+  if (process.env.DIARIZE_PYTHON) return process.env.DIARIZE_PYTHON;
+  const isWin = process.platform === "win32";
+  const venvPython = join(
+    os.homedir(), ".node-trans", "diarize-venv",
+    isWin ? "Scripts\\python.exe" : "bin/python3"
+  );
+  if (existsSync(venvPython)) return venvPython;
+  return isWin ? "py" : "python3";
+}
+
+export function createSession({
+  targetLanguage = "vi",
+  whisperLanguage = "auto",
+  whisperModel = "base",
+  localTranslationEngine = "none",
+  ollamaBaseUrl = "http://localhost:11434",
+  ollamaModel = "llama3.2",
+  libreTranslateUrl = "http://localhost:5000",
+  languageHints = ["en"],
+  hfToken = "",
+  context = null,
+} = {}) {
+  let _onPartial = null;
+  let _onUtterance = null;
+  let _onError = null;
+
+  let pyProcess = null;
+  let stdoutBuf = "";
+  let stopped = false;
+  let ready = false;
+  let fallbackSession = null;
+  let useFallback = false;
+
+  const detectedLang = whisperLanguage === "auto"
+    ? (languageHints[0] || "en")
+    : whisperLanguage;
+
+  const translationSettings = {
+    localTranslationEngine,
+    ollamaBaseUrl,
+    ollamaModel,
+    libreTranslateUrl,
+    targetLanguage,
+    context,
+  };
+
+  async function handleUtterance({ text, speaker }) {
+    if (!text) return;
+    const { translated, lang } = await translateText(text, detectedLang, translationSettings);
+    _onUtterance?.({
+      originalText: text,
+      translatedText: translated,
+      originalLanguage: detectedLang,
+      translationLanguage: lang || null,
+      speaker: speaker || null,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  function parseLine(line) {
+    if (!line.trim()) return;
+    let msg;
+    try { msg = JSON.parse(line); } catch { return; }
+
+    switch (msg.type) {
+      case "ready":
+        ready = true;
+        console.log("[diarize-session] Python worker ready");
+        break;
+      case "utterance":
+        handleUtterance(msg).catch((err) =>
+          console.error("[diarize-session] Translation error:", err)
+        );
+        break;
+      case "error":
+        console.error("[diarize-session] Python error:", msg.message);
+        _onError?.(new Error(msg.message));
+        break;
+    }
+  }
+
+  async function activateFallback() {
+    if (useFallback) return;
+    console.warn("[diarize-session] Activating fallback (whisper, no speaker labels)");
+    useFallback = true;
+    fallbackSession = createWhisperSession({
+      targetLanguage, whisperLanguage, whisperModel,
+      localTranslationEngine, ollamaBaseUrl, ollamaModel,
+      libreTranslateUrl, languageHints, context,
+    });
+    fallbackSession.onPartial((p) => _onPartial?.(p));
+    fallbackSession.onUtterance((u) => _onUtterance?.(u));
+    fallbackSession.onError((e) => _onError?.(e));
+    await fallbackSession.connect();
+    await fallbackSession.startStreaming();
+  }
+
+  function sendToPython(obj) {
+    if (!pyProcess || stopped || useFallback) return;
+    try {
+      pyProcess.stdin.write(JSON.stringify(obj) + "\n");
+    } catch (err) {
+      console.error("[diarize-session] Stdin write failed:", err.message);
+    }
+  }
+
+  return {
+    async connect() {
+      const pythonBin = getPythonBin();
+      const pyArgs = [
+        DIARIZE_PY,
+        "--hf-token", hfToken,
+        "--whisper-model", whisperModel,
+      ];
+
+      console.log(`[diarize-session] Spawning ${pythonBin} diarize.py`);
+
+      try {
+        pyProcess = spawn(pythonBin, pyArgs, {
+          stdio: ["pipe", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            TOKENIZERS_PARALLELISM: "false",
+            TRANSFORMERS_VERBOSITY: "error",
+          },
+        });
+      } catch (err) {
+        console.error("[diarize-session] Spawn failed:", err.message);
+        await activateFallback();
+        return;
+      }
+
+      pyProcess.stderr.on("data", (d) => process.stderr.write(d));
+
+      pyProcess.stdout.on("data", (data) => {
+        stdoutBuf += data.toString("utf8");
+        const lines = stdoutBuf.split("\n");
+        stdoutBuf = lines.pop();
+        for (const line of lines) parseLine(line);
+      });
+
+      pyProcess.on("exit", (code, signal) => {
+        if (!stopped) {
+          console.error(`[diarize-session] Python exited unexpectedly (code=${code} signal=${signal})`);
+          activateFallback().catch(console.error);
+        }
+      });
+
+      pyProcess.on("error", (err) => {
+        console.error("[diarize-session] Process error:", err.message);
+        activateFallback().catch(console.error);
+      });
+
+      // Wait for 'ready' or timeout → fallback
+      await new Promise((resolve) => {
+        const timeout = setTimeout(async () => {
+          if (!ready && !useFallback) {
+            console.warn("[diarize-session] Ready timeout — activating fallback");
+            await activateFallback();
+          }
+          resolve();
+        }, READY_TIMEOUT_MS);
+
+        const poll = setInterval(() => {
+          if (ready || useFallback) {
+            clearInterval(poll);
+            clearTimeout(timeout);
+            resolve();
+          }
+        }, 200);
+      });
+    },
+
+    async startStreaming() {
+      // Python is already in its stdin loop after load_models()
+      // Fallback starts streaming inside activateFallback()
+    },
+
+    sendAudio(chunk) {
+      if (stopped) return;
+      if (useFallback) {
+        fallbackSession?.sendAudio(chunk);
+        return;
+      }
+      // Drop audio before Python is ready (avoids unbounded buffering)
+      if (!ready) return;
+      sendToPython({ type: "audio", data: chunk.toString("base64") });
+    },
+
+    async stop() {
+      if (stopped) return;
+      stopped = true;
+
+      if (useFallback && fallbackSession) {
+        await fallbackSession.stop();
+        return;
+      }
+
+      if (pyProcess) {
+        sendToPython({ type: "shutdown" });
+        await new Promise((resolve) => {
+          const timeout = setTimeout(() => {
+            try { pyProcess.kill("SIGTERM"); } catch {}
+            resolve();
+          }, 10_000);
+          pyProcess.on("exit", () => { clearTimeout(timeout); resolve(); });
+        });
+      }
+    },
+
+    onPartial(cb) { _onPartial = cb; },
+    onUtterance(cb) { _onUtterance = cb; },
+    onError(cb) { _onError = cb; },
+  };
+}
