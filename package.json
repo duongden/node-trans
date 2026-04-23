@@ -10,10 +10,11 @@
     "dev:client": "vite --config client/vite.config.js",
     "start": "npm run native:node && npm run build && node src/server.js",
     "build": "vite build --config client/vite.config.js",
-    "electron:dev": "npm run native:electron && concurrently \"npm:dev:client\" \"electron electron/main.js\"",
+    "electron:dev": "npm run native:electron && concurrently \"npm:dev:client\" \"electron electron/main.js --no-sandbox\"",
     "electron:build": "npm run build && npm run native:electron && electron-builder --config electron-builder.config.js",
     "electron:build:mac": "npm run build && npm run native:electron && electron-builder --config electron-builder.config.js --mac",
     "electron:build:win": "npm run build && npm run native:electron && electron-builder --config electron-builder.config.js --win",
+    "electron:build:linux": "npm run build && npm run native:electron && electron-builder --config electron-builder.config.js --linux",
     "setup:audiocap": "node scripts/build-audiocap.js",
     "setup:ffmpeg": "node scripts/download-ffmpeg.js",
     "setup:whisper": "node scripts/build-whisper.js",
@@ -26,7 +27,10 @@
     "node": ">=20"
   },
   "keywords": [],
-  "author": "",
+  "author": {
+    "name": "Node Trans",
+    "email": "thai.nph@papay.vn"
+  },
   "license": "ISC",
   "dependencies": {
     "@soniox/node": "^1.1.2",

@@ -19,3 +19,4 @@ wasapi-audiocap/obj/
 !audiocap-bin/**
 
 .DS_Store
+.gitnexus

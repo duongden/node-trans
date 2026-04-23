@@ -2,7 +2,7 @@
 
 Real-time audio transcription and translation app. Captures audio from microphone, system audio, or both. Supports two transcription modes: **Soniox** (cloud, built-in translation) and **Local Whisper** (fully offline).
 
-Runs as a **web app** (browser) or **desktop app** (Electron). Supports **macOS** and **Windows**.
+Runs as a **web app** (browser) or **desktop app** (Electron). Supports **macOS**, **Windows**, and **Linux**.
 
 ---
 
@@ -57,6 +57,16 @@ See [DEV-BUILD.md](DEV-BUILD.md) for build instructions and troubleshooting.
 | Optimal     | 32 GB | NVIDIA 12 GB+ VRAM (RTX 4070 Ti+) | All features comfortably                                |
 
 AMD GPUs are not supported. Without an NVIDIA GPU, diarization cannot run in real-time. Install [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) for GPU acceleration.
+
+### Linux
+
+| Config      | RAM   | GPU                               | Usable features                                         |
+| ----------- | ----- | --------------------------------- | ------------------------------------------------------- |
+| Minimum     | 16 GB | None                              | Whisper tiny/base + small Ollama (slow), no diarization |
+| Recommended | 16 GB | NVIDIA 8 GB VRAM (RTX 3060+)      | Whisper medium + Ollama gemma3:4b + diarization         |
+| Optimal     | 32 GB | NVIDIA 12 GB+ VRAM (RTX 4070 Ti+) | All features comfortably                                |
+
+Requires **PulseAudio** or **PipeWire** (with PulseAudio compatibility) for audio device management. Most modern distros (Ubuntu 22.04+, Fedora, etc.) include one of these by default. Install `ffmpeg` via your package manager (`sudo apt install ffmpeg`).
 
 ### Disk space (Local Whisper)
 
@@ -151,6 +161,8 @@ System audio capture (from Zoom, Meet, YouTube, etc.) works natively — no virt
 - **macOS**: ScreenCaptureKit (requires Screen Recording permission, macOS 13+)
 - **Windows**: WASAPI loopback (no special permissions needed)
 
+- **Linux**: PulseAudio / PipeWire monitor sources (via ffmpeg)
+
 > To rebuild from source: `npm run setup:audiocap` (requires Swift on macOS, .NET 8 SDK for Windows cross-compile)
 
 ---
@@ -172,8 +184,8 @@ System audio capture (from Zoom, Meet, YouTube, etc.) works natively — no virt
 | Frontend            | React 19, Vite, Tailwind CSS v4, Socket.IO Client |
 | Backend             | Node.js, Express 5, Socket.IO                     |
 | Desktop             | Electron                                          |
-| Audio capture (mic) | ffmpeg (avfoundation / dshow)                     |
-| Audio capture (sys) | audiocap (ScreenCaptureKit on macOS, WASAPI on Windows) |
+| Audio capture (mic) | ffmpeg (avfoundation / dshow / pulse)              |
+| Audio capture (sys) | audiocap (macOS / Windows), ffmpeg+pulse (Linux)   |
 | STT (cloud)         | Soniox API                                        |
 | STT (local)         | nodejs-whisper (whisper.cpp)                      |
 | Speaker diarization | pyannote-audio 3.1 (Python)                       |
