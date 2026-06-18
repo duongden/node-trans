@@ -139,7 +139,7 @@ Audio device (mic / system audio)
 
 ```
 Audio chunks → Soniox SDK → Cloud API
-                              · Model: stt-rt-v4
+                              · Model: stt-rt-v5
                               · Real-time streaming
                               · Built-in translation
                               · Built-in speaker diarization
