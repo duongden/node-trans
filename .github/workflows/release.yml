@@ -32,7 +32,16 @@ jobs:
         run: npm run native:electron
 
       - name: Build & package
-        run: npm run build && npx electron-builder --config electron-builder.config.js --mac --publish never
+        run: |
+          npm run build
+          if [ -n "$CSC_LINK" ]; then
+            echo "Signing certificate found — building signed app"
+            npx electron-builder --config electron-builder.config.js --mac --publish never
+          else
+            echo "No signing certificate — building unsigned app"
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            npx electron-builder --config electron-builder.config.js --mac --publish never
+          fi
         env:
           CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
