@@ -186,17 +186,41 @@ io.on("connection", (socket) => {
       // Resolve devices
       const devices = await listInputDevices();
       const isWin = process.platform === "win32";
+      const isLinux = process.platform === "linux";
       const micIndex = settings.micDeviceIndex ?? 0;
       const micDevice = devices.find((d) => d.index === micIndex);
 
-      // On Windows, dshow needs device name; on macOS, avfoundation uses index
-      const micCaptureDev = isWin ? micDevice?.name : micIndex;
+      // On Windows/Linux, capture needs device name; on macOS, avfoundation uses index
+      const micCaptureDev = (isWin || isLinux) ? micDevice?.name : micIndex;
 
       // System audio: native capture via audiocap (ScreenCaptureKit on macOS, WASAPI on Windows)
-      const audiocapAvailable = await checkAudiocap();
+      // On Linux, audiocap is not available — fall back to ffmpeg + PulseAudio monitor source
+      const audiocapAvailable = !isLinux && await checkAudiocap();
       const useAudiocap = audiocapAvailable && (audioSource === "system" || audioSource === "both");
 
-      if ((audioSource === "system" || audioSource === "both") && !useAudiocap) {
+      // Linux fallback: auto-detect PulseAudio monitor loopback device
+      let systemCaptureDev = null;
+      if (isLinux && (audioSource === "system" || audioSource === "both")) {
+        const systemIndex = settings.systemDeviceIndex;
+        if (systemIndex != null) {
+          const systemDevice = devices.find((d) => d.index === systemIndex);
+          if (systemDevice) {
+            systemCaptureDev = systemDevice.name;
+          } else {
+            emitError(socket, { key: "errSystemDeviceNotFound", params: { index: systemIndex } });
+          }
+        } else {
+          // Auto-detect PulseAudio monitor source
+          const loopback = devices.find((d) => /\.monitor$/i.test(d.name));
+          if (loopback) {
+            systemCaptureDev = loopback.name;
+          } else {
+            emitError(socket, { key: "errNoLoopbackLinux" });
+          }
+        }
+      }
+
+      if ((audioSource === "system" || audioSource === "both") && !useAudiocap && !isLinux) {
         emitError(socket, { key: "errAudiocapNotFound" });
       }
 
@@ -246,7 +270,10 @@ io.on("connection", (socket) => {
       await Promise.all(sources.map(async (source) => {
         const isSystemSource = source === "system";
         const useNativeCapture = isSystemSource && useAudiocap;
-        const captureDev = isSystemSource ? null : micCaptureDev;
+        // On Linux, system source uses ffmpeg+pulse with monitor device
+        const captureDev = isSystemSource
+          ? (isLinux ? systemCaptureDev : null)
+          : micCaptureDev;
 
         if (!useNativeCapture && captureDev == null) {
           emitError(socket, { key: "errNoDevice", params: { source } });
